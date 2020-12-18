@@ -1,0 +1,37 @@
+#Startparameter for run:
+ System = Ir-cell
+ ISTART = 0
+ ISPIN  = 2 # vip, spin polarization 
+ PREC   = Normal
+
+#Electronic Relaxation
+ ENCUT  = 400 eV # important, energy cutoff£¬need test
+ EDIFF  = 1E-04
+ LREAL  = Auto
+ ALGO   = Fast
+ NELM   = 200
+ NELMIN = 4
+ NPAR   = 8
+ 
+# Ionic relaxation
+ EDIFFG = -0.04
+ NSW    = 0
+ POTIM  = 0
+ ISIF   = 2 # 2£¬no change;3,change 
+ IBRION = -1 # vip, ion relax, 2: opt, 0:MD, -1: single point
+ ISYM   = 2 # vip, symmetry, 0,1: close; 2 ,open
+ ICHARG = 2
+ LORBIT = 11
+ IDIPOL = 3
+ 
+#DOS related values: 
+ ISMEAR = 1 # 1£ºmetal£¬band; -5£ºDOS; 0 £¨Normal£©
+ SIGMA  = 0.2
+ 
+#Exchange correlation treatment:
+ GGA    = PE
+ 
+#Write flags
+ LCHARG = .FALSE.
+ LWAVE  = .FALSE.
+ 
