@@ -9,6 +9,7 @@ struct INCAR {
 }
 
 impl INCAR {
+    /// Read VASP INCAR from `path`
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         // INCAR中可能会含有中文字符, 或者无效的UTF-8字符
         use bstr::{ByteSlice, ByteVec};
@@ -37,11 +38,30 @@ impl INCAR {
             if value.contains(";") {
                 warn!("; found. that is not supported.")
             }
-            params.push((tag.to_uppercase(), value.to_uppercase()));
+            params.push((tag.to_uppercase(), value.to_string()));
         }
         let incar = Self { params };
 
         Ok(incar)
+    }
+
+    /// Save as INCAR file
+    pub fn save(&self) -> Result<()> {
+        let n = self
+            .params
+            .iter()
+            .map(|(tag, _)| tag.len())
+            .max()
+            .expect("INCAR: no lines");
+
+        let lines: String = self
+            .params
+            .iter()
+            .map(|(tag, value)| format!("{:n$} = {}\n", tag, value, n = n))
+            .collect();
+
+        gut::fs::write_to_file("INCAR", &lines)?;
+        Ok(())
     }
 }
 

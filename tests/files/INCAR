@@ -15,7 +15,7 @@
  
 # Ionic relaxation
  EDIFFG = -0.04
- NSW    = 0
+ NSW = 0
  POTIM  = 0
  ISIF   = 2 # 2£¬no change;3,change 
  IBRION = -1 # vip, ion relax, 2: opt, 0:MD, -1: single point
