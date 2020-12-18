@@ -1,0 +1,16 @@
+# [[file:vasp-server.note::*cargo][cargo:1]]
+[package]
+name = "vasp-server"
+version = "0.0.1"
+edition = "2018"
+authors = ["Wenping Guo <ybyygu@gmail.com>"]
+
+[dependencies]
+nix = "0.19"
+bstr = "0.2"
+fs2 = "0.4"
+structopt = "0.3"
+gut = { version = "0.1.4", package = "gchemol-gut" }
+
+[dev-dependencies]
+# cargo:1 ends here
