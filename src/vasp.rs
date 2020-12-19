@@ -1,4 +1,4 @@
-// [[file:../vasp-server.note::*INCAR][INCAR:1]]
+// [[file:../vasp-server.note::*INCAR file][INCAR file:1]]
 use gut::prelude::*;
 use std::path::Path;
 
@@ -72,4 +72,78 @@ fn test_incar() -> Result<()> {
 
     Ok(())
 }
-// INCAR:1 ends here
+// INCAR file:1 ends here
+
+// [[file:../vasp-server.note::*update INCAR][update INCAR:1]]
+fn update_vasp_incar_file(path: &Path) -> Result<()> {
+    // INCAR file may contains invalid UTF-8 characters, so we handle it using
+    // byte string
+    use bstr::{ByteSlice, B};
+
+    let mandatory_params = vec![
+        "POTIM = 0",
+        "NELM = 200",
+        "NSW = 0",
+        "IBRION = -1",
+        "ISYM = 0",
+        "INTERACTIVE = .TRUE.",
+    ];
+
+    // remove mandatory tags defined by user, so we can add the required
+    // parameters later
+    let bytes = std::fs::read(path)?;
+    let mut lines: Vec<&[u8]> = bytes
+        .lines()
+        .filter(|line| {
+            let s = line.trim_start();
+            if !s.starts_with_str("#") && s.contains_str("=") {
+                let parts: Vec<_> = s.splitn_str(2, "=").collect();
+                if parts.len() == 2 {
+                    let tag = parts[0].trim().to_uppercase();
+                    for param in mandatory_params.iter() {
+                        let param = param.as_bytes().as_bstr();
+                        if param.starts_with(&tag) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        })
+        .collect();
+
+    // append mandatory parameters
+    lines.push(B("# Mandatory parameters for VASP server:"));
+    for param in mandatory_params.iter() {
+        lines.push(B(param));
+    }
+    let txt = bstr::join("\n", &lines);
+    println!("{}", txt.to_str_lossy());
+
+    std::fs::write("/tmp/INCAR_new", txt)?;
+
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn test_update_incar() -> Result<()> {
+    update_vasp_incar_file("./tests/files/INCAR".as_ref())?;
+
+    Ok(())
+}
+// update INCAR:1 ends here
+
+// [[file:../vasp-server.note::*STOPCAR][STOPCAR:1]]
+fn write_stopcar() -> Result<()> {
+    write_to_file(path, "LABORT = .TRUE.\n")?;
+
+    Ok(())
+}
+
+pub(crate) fn stop_vasp_server() -> Result<()> {
+    write_stopcar()?;
+
+    Ok(())
+}
+// STOPCAR:1 ends here
