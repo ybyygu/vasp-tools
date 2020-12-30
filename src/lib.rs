@@ -7,6 +7,7 @@ use nix::unistd::Pid;
 // imports:1 ends here
 
 // [[file:../vasp-server.note::*mods][mods:1]]
+mod task;
 mod vasp;
 // mods:1 ends here
 
@@ -65,25 +66,14 @@ pub fn daemonize() -> Result<PidFile> {
     nix::unistd::daemon(true, true)?;
 
     // 生成进程session, 方便退出时处理子进程
-    if nix::unistd::setsid().is_err() {
-        eprintln!("Could not create new session");
-    }
+    // if nix::unistd::setsid().is_err() {
+    //     eprintln!("Could not create new session");
+    // }
     let sid = std::process::id() as i32;
     println!(" my pid {}", sid);
+
     let mut pid_file = PidFile::create("vasp-server.pid")?;
     pid_file.write_pid(Pid::from_raw(sid))?;
-
-    // let mut count = 0u32;
-    // loop {
-    //     count += 1;
-    //     print!("{} ", count);
-    //     if count == 60 {
-    //         println!("OK, that's enough");
-    //         // Exit this loop
-    //         break;
-    //     }
-    //     std::thread::sleep(std::time::Duration::new(1, 0));
-    // }
 
     let console_sock: PathBuf = "/tmp/vasp-server.sock".into();
 
@@ -100,13 +90,6 @@ pub fn daemonize() -> Result<PidFile> {
             break;
         }
     }
-
-    // // 从socket文件中读
-    // let mut buf = [0 as u8; 4096];
-    // stream.read_exact(&mut buf)?;
-
-    // // 写入socket文件
-    // stream.write_all(&buf)?;
 
     Ok(pid_file)
 }
