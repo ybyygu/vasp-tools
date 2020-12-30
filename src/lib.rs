@@ -73,25 +73,33 @@ pub fn daemonize() -> Result<PidFile> {
     let mut pid_file = PidFile::create("vasp-server.pid")?;
     pid_file.write_pid(Pid::from_raw(sid))?;
 
-    let mut count = 0u32;
-    loop {
-        count += 1;
-        print!("{} ", count);
-        if count == 60 {
-            println!("OK, that's enough");
-            // Exit this loop
-            break;
-        }
-        std::thread::sleep(std::time::Duration::new(1, 0));
-    }
+    // let mut count = 0u32;
+    // loop {
+    //     count += 1;
+    //     print!("{} ", count);
+    //     if count == 60 {
+    //         println!("OK, that's enough");
+    //         // Exit this loop
+    //         break;
+    //     }
+    //     std::thread::sleep(std::time::Duration::new(1, 0));
+    // }
 
-    let console_sock: PathBuf = "vasp-server.sock".into();
+    let console_sock: PathBuf = "/tmp/vasp-server.sock".into();
 
     // https://stackoverflow.com/questions/40218416/how-do-i-close-a-unix-socket-in-rust
     // servers should unlink the socket pathname prior to binding it.
     let listener = UnixListener::bind(&console_sock)?;
-    let (mut stream, _sockaddr) = listener.accept()?;
-    // let stream_fd = stream.as_raw_fd();
+    for stream in listener.incoming() {
+        let mut stream = stream?;
+        let mut msg = String::new();
+        let n = stream.read_to_string(&mut msg)?;
+        dbg!(n);
+        let action = msg.trim();
+        if dbg!(action) == "exit" {
+            break;
+        }
+    }
 
     // // 从socket文件中读
     // let mut buf = [0 as u8; 4096];

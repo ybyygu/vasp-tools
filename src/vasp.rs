@@ -136,7 +136,7 @@ fn test_update_incar() -> Result<()> {
 
 // [[file:../vasp-server.note::*STOPCAR][STOPCAR:1]]
 fn write_stopcar() -> Result<()> {
-    write_to_file(path, "LABORT = .TRUE.\n")?;
+    gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n")?;
 
     Ok(())
 }
