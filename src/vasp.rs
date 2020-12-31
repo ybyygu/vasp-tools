@@ -66,6 +66,7 @@ impl INCAR {
 }
 
 #[test]
+#[ignore]
 fn test_incar() -> Result<()> {
     let incar = INCAR::from_file("./tests/files/INCAR")?;
     dbg!(incar);
@@ -147,3 +148,7 @@ pub(crate) fn stop_vasp_server() -> Result<()> {
     Ok(())
 }
 // STOPCAR:1 ends here
+
+// [[file:../vasp-server.note::*INTERACTIVE][INTERACTIVE:1]]
+
+// INTERACTIVE:1 ends here
