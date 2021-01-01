@@ -11,10 +11,24 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::LineWriter;
 
+enum ReadState {
+    // 可忽略
+    Skip,
+    // 当前结构forces行
+    Forces,
+    // 当前结构能量行
+    Energy,
+    // 需要在stdin写入新结构的分数坐标
+    InputPositions,
+}
+
 struct Task {
     child: Child,
     stdout: Option<ChildStdout>,
     stdin: Option<ChildStdin>,
+
+    state: ReadState,
+    computed: VaspResult,
 }
 
 impl Task {
@@ -25,53 +39,133 @@ impl Task {
             .spawn()?;
         let stdout = child.stdout.take();
         let stdin = child.stdin.take();
+        let state = ReadState::Skip;
+        let computed = VaspResult::default();
 
-        Ok(Self { child, stdin, stdout })
-    }
-
-    fn stdout(&mut self) -> BufReader<ChildStdout> {
-        let r = self.stdout.take().unwrap();
-        BufReader::new(r)
-    }
-
-    fn stdin(&mut self) -> LineWriter<ChildStdin> {
-        let r = self.stdin.take().unwrap();
-        LineWriter::new(r)
+        Ok(Self {
+            child,
+            stdin,
+            stdout,
+            state,
+            computed,
+        })
     }
 }
 // base:1 ends here
 
+// [[file:../vasp-server.note::*server][server:1]]
+use std::path::PathBuf;
+
+#[derive(Debug)]
+pub struct VaspServer {
+    file: std::fs::File,
+    path: PathBuf,
+}
+
+impl VaspServer {
+    // 生成vasp.pid文件, 如果vasp server已运行, 将报错
+    fn create<P: AsRef<Path>>(path: P) -> Result<VaspServer> {
+        use fs2::*;
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&path)
+            .context("Could not create PID file")?;
+
+        // https://docs.rs/fs2/0.4.3/fs2/trait.FileExt.html
+        file.try_lock_exclusive()
+            .context("Could not lock PID file; Is the daemon already running?")?;
+
+        Ok(VaspServer {
+            file,
+            path: path.as_ref().to_owned(),
+        })
+    }
+}
+
+impl Drop for VaspServer {
+    // daemon退出时, 清理pidfile
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+// server:1 ends here
+
 // [[file:../vasp-server.note::*core][core:1]]
-use std::os::unix::net::UnixStream;
+impl Task {
+    fn enter_state_read_forces(&mut self) {
+        info!("start reading forces");
+        self.state = ReadState::Forces;
+    }
 
-fn redirect_cmd_stdout(child: &mut Child, stream: &mut UnixStream) -> Result<()> {
-    let stdout = child.stdout.as_mut().expect("cmd stdout");
+    fn enter_state_read_energy(&mut self) {
+        info!("start reading energy");
+        self.state = ReadState::Energy;
+    }
 
-    std::io::copy(stdout, stream)?;
+    fn enter_state_input_positions(&mut self) {
+        info!("read input structure from stdin");
+        self.state = ReadState::InputPositions;
+    }
 
-    Ok(())
-}
+    fn collect(&mut self, line: &str) {
+        self.computed.collect(line, &self.state);
+    }
 
-fn redirect_cmd_stdin(child: &mut Child, stream: &mut UnixStream) -> Result<()> {
-    let stdin = child.stdin.as_mut().expect("cmd stdin");
+    /// 往stdin写入分数坐标
+    fn take_action_input(&mut self) {
+        let mut writer = LineWriter::new(self.stdin.as_mut().unwrap());
+        writer.write_all(b"exit\n");
+    }
 
-    std::io::copy(stream, stdin)?;
+    /// 输出当前结构对应的计算结果
+    fn take_action_output(&self) -> Result<()> {
+        let energy = self.computed.get_energy().unwrap();
+        let forces = self.computed.get_forces().unwrap();
+        dbg!(energy);
+        dbg!(forces);
 
-    Ok(())
-}
+        Ok(())
+    }
 
-fn read_interactive_vasp_output(stdout: &mut ChildStdout, natoms: usize) -> Result<()> {
-    todo!()
+    /// 根据当前状态, 采取对应的行动, 比如继续读取, 输入结构还是输出结果.
+    fn take_action(&mut self, line: &str) -> Result<()> {
+        self.collect(dbg!(line));
+        match self.state {
+            ReadState::InputPositions => self.take_action_input(),
+            ReadState::Energy => self.take_action_output()?,
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// 开始主循环
+    fn enter_main_loop(&mut self) -> Result<()> {
+        let mut lines = BufReader::new(self.stdout.take().unwrap()).lines();
+        loop {
+            if let Some(line) = lines.next() {
+                let line = line?;
+                if line == "FORCES:" {
+                    self.enter_state_read_forces();
+                } else if line.trim_start().starts_with("1 F=") {
+                    self.enter_state_read_energy();
+                } else if line == "POSITIONS: reading from stdin" {
+                    self.enter_state_input_positions();
+                }
+                self.take_action(&line)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
+    }
 }
 // core:1 ends here
 
-// [[file:../vasp-server.note::*test][test:1]]
-enum ReadState {
-    Skip,
-    Forces,
-    Energy,
-}
-
+// [[file:../vasp-server.note::*vasp][vasp:1]]
 #[derive(Debug, Default, Clone)]
 struct VaspResult {
     forces: String,
@@ -104,13 +198,22 @@ impl VaspResult {
 }
 
 fn parse_vasp_forces(s: &str) -> Option<Vec<[f64; 3]>> {
-    if s.is_empty() {
+    if !s.starts_with("FORCES:") {
         None
     } else {
         s.lines()
             .skip(1)
             .map(|line| {
-                let parts: Vec<_> = line.split_whitespace().map(|p| p.parse().unwrap()).collect();
+                let parts: Vec<_> = line
+                    .split_whitespace()
+                    .map(|p| match p.parse() {
+                        Ok(value) => value,
+                        Err(err) => {
+                            dbg!(line, err);
+                            todo!();
+                        }
+                    })
+                    .collect();
                 [parts[0], parts[1], parts[2]]
             })
             .collect_vec()
@@ -132,42 +235,24 @@ fn test_parse_vasp_energy() {
     let e = parse_vasp_energy(s);
     assert_eq!(e, Some(-0.84775142E+02));
 }
+// vasp:1 ends here
 
-#[test]
-fn test_run() -> Result<()> {
-    let mut task = Task::new("/tmp/test.sh")?;
-    let stdout = task.stdout();
+// [[file:../vasp-server.note::*expt][expt:1]]
+use std::os::unix::net::UnixStream;
 
-    let mut lines = stdout.lines();
-    let mut results = VaspResult::default();
-    let mut state = ReadState::Skip;
-    loop {
-        if let Some(line) = lines.next() {
-            let line = line?;
-            if line == "FORCES:" {
-                info!("start reading forces");
-                state = ReadState::Forces;
-            } else if line.starts_with("1 F=") {
-                state = ReadState::Energy;
-                info!("start reading energy");
-            } else if line == "POSITIONS: reading from stdin" {
-                info!("read input structure from stdin");
-                break;
-            }
-            results.collect(&line, &state);
-        } else {
-            break;
-        }
-    }
-    let mut stdin = task.stdin();
-    stdin.write_all(b"exit\n");
-    dbg!(results);
+fn redirect_cmd_stdout(child: &mut Child, stream: &mut UnixStream) -> Result<()> {
+    let stdout = child.stdout.as_mut().expect("cmd stdout");
 
-    for line in lines {
-        let line = line?;
-        dbg!(line);
-    }
+    std::io::copy(stdout, stream)?;
 
     Ok(())
 }
-// test:1 ends here
+
+fn redirect_cmd_stdin(child: &mut Child, stream: &mut UnixStream) -> Result<()> {
+    let stdin = child.stdin.as_mut().expect("cmd stdin");
+
+    std::io::copy(stream, stdin)?;
+
+    Ok(())
+}
+// expt:1 ends here
