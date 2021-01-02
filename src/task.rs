@@ -58,36 +58,63 @@ use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct VaspServer {
-    file: std::fs::File,
     path: PathBuf,
+    listener: std::os::unix::net::UnixListener,
+    stream: Option<std::os::unix::net::UnixStream>,
 }
 
 impl VaspServer {
-    // 生成vasp.pid文件, 如果vasp server已运行, 将报错
-    fn create<P: AsRef<Path>>(path: P) -> Result<VaspServer> {
-        use fs2::*;
+    // Create a new VASP server. Return error if the server already started.
+    fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
+        use std::os::unix::net::UnixListener;
 
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&path)
-            .context("Could not create PID file")?;
+        let path = path.as_ref();
+        if path.exists() {
+            bail!("VASP server already started!");
+        }
 
-        // https://docs.rs/fs2/0.4.3/fs2/trait.FileExt.html
-        file.try_lock_exclusive()
-            .context("Could not lock PID file; Is the daemon already running?")?;
-
+        let listener = UnixListener::bind(&path)?;
         Ok(VaspServer {
-            file,
-            path: path.as_ref().to_owned(),
+            listener,
+            path: path.to_owned(),
+            stream: None,
         })
+    }
+
+    fn wait_for_client(&mut self) -> Result<()> {
+        let (stream, _) = self.listener.accept()?;
+        self.stream = stream.into();
+
+        Ok(())
+    }
+
+    fn stream(&mut self) -> &mut UnixStream {
+        self.stream.as_mut().expect("unix stream not ready")
+    }
+
+    /// 将`out`发送给client
+    fn send_output(&mut self, out: &str) -> Result<()> {
+        write!(self.stream(), "{}", out);
+
+        Ok(())
+    }
+
+    /// 向client请求输入新的结构
+    fn recv_input(&mut self) -> Result<String> {
+        let mut inputs = String::new();
+        let nbytes = self.stream().read_to_string(&mut inputs)?;
+        assert_ne!(nbytes, 0);
+
+        Ok(inputs)
     }
 }
 
 impl Drop for VaspServer {
-    // daemon退出时, 清理pidfile
+    // clean upunix socket file
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        if self.path.exists() {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 // server:1 ends here
