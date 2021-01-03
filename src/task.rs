@@ -29,6 +29,8 @@ struct Task {
 
     state: ReadState,
     computed: VaspResult,
+
+    socket_file: Option<SocketFile>,
 }
 
 impl Task {
@@ -48,6 +50,7 @@ impl Task {
             stdout,
             state,
             computed,
+            socket_file: None,
         })
     }
 }
@@ -57,13 +60,13 @@ impl Task {
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub struct VaspServer {
+pub struct SocketFile {
     path: PathBuf,
     listener: std::os::unix::net::UnixListener,
     stream: Option<std::os::unix::net::UnixStream>,
 }
 
-impl VaspServer {
+impl SocketFile {
     // Create a new VASP server. Return error if the server already started.
     fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
         use std::os::unix::net::UnixListener;
@@ -74,7 +77,7 @@ impl VaspServer {
         }
 
         let listener = UnixListener::bind(&path)?;
-        Ok(VaspServer {
+        Ok(SocketFile {
             listener,
             path: path.to_owned(),
             stream: None,
@@ -109,7 +112,7 @@ impl VaspServer {
     }
 }
 
-impl Drop for VaspServer {
+impl Drop for SocketFile {
     // clean upunix socket file
     fn drop(&mut self) {
         if self.path.exists() {
@@ -140,18 +143,38 @@ impl Task {
         self.computed.collect(line, &self.state);
     }
 
-    /// 往stdin写入分数坐标
-    fn take_action_input(&mut self) {
+    // 从POSCAR中提取分数坐标, 写入vasp stdin
+    fn take_action_input(&mut self) -> Result<()> {
+        use gchemol::prelude::*;
+        use gchemol::Molecule;
+        use gosh::gchemol;
+
+        // FIXME: read POSITIONS from POSCAR
+        let mol = Molecule::from_file("POSCAR").context("Reading POSCAR file ...")?;
+        let lines: String = mol
+            .get_scaled_positions()
+            .expect("lattice")
+            .map(|[x, y, z]| format!("{:19.16}{:19.16}{:19.16}\n", x, y, z))
+            .collect();
+
         let mut writer = LineWriter::new(self.stdin.as_mut().unwrap());
-        writer.write_all(b"exit\n");
+        writer.write_all(lines.as_bytes());
+
+        Ok(())
     }
 
     /// 输出当前结构对应的计算结果
-    fn take_action_output(&self) -> Result<()> {
+    fn take_action_output(&mut self) -> Result<()> {
         let energy = self.computed.get_energy().unwrap();
         let forces = self.computed.get_forces().unwrap();
-        dbg!(energy);
-        dbg!(forces);
+
+        // FIXME: rewrite
+        let mut mp = gosh::model::ModelProperties::default();
+        mp.set_forces(dbg!(forces));
+        mp.set_energy(dbg!(energy));
+        let socket = self.socket_file.as_mut().expect("no active socket");
+        socket.wait_for_client()?;
+        socket.send_output(&mp.to_string())?;
 
         Ok(())
     }
@@ -160,7 +183,7 @@ impl Task {
     fn take_action(&mut self, line: &str) -> Result<()> {
         self.collect(dbg!(line));
         match self.state {
-            ReadState::InputPositions => self.take_action_input(),
+            ReadState::InputPositions => self.take_action_input()?,
             ReadState::Energy => self.take_action_output()?,
             _ => {}
         }

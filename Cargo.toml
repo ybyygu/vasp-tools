@@ -6,6 +6,7 @@ edition = "2018"
 authors = ["Wenping Guo <ybyygu@gmail.com>"]
 
 [dependencies]
+gosh = { version = ">=0.0.1", features=["adhoc"] }
 nix = "0.19"
 bstr = "0.2"
 fs2 = "0.4"
