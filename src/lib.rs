@@ -75,7 +75,7 @@ pub fn daemonize() -> Result<PidFile> {
     let mut pid_file = PidFile::create("vasp-server.pid")?;
     pid_file.write_pid(Pid::from_raw(sid))?;
 
-    let console_sock: PathBuf = "/tmp/vasp-server.sock".into();
+    let console_sock: PathBuf = "vasp-server.sock".into();
 
     // https://stackoverflow.com/questions/40218416/how-do-i-close-a-unix-socket-in-rust
     // servers should unlink the socket pathname prior to binding it.
@@ -94,3 +94,7 @@ pub fn daemonize() -> Result<PidFile> {
     Ok(pid_file)
 }
 // daemon:1 ends here
+
+// [[file:../vasp-server.note::*pub][pub:1]]
+pub use crate::task::*;
+// pub:1 ends here
