@@ -28,7 +28,8 @@ enum ReadState {
     InputPositions,
 }
 
-struct Task {
+#[derive(Debug)]
+pub(crate) struct Task {
     child: Child,
     stdout: Option<ChildStdout>,
     stdin: Option<ChildStdin>,
@@ -40,7 +41,7 @@ struct Task {
 }
 
 impl Task {
-    fn new<P: AsRef<Path>>(exe: P) -> Result<Self> {
+    pub(crate) fn new<P: AsRef<Path>>(exe: P) -> Result<Self> {
         let exe = exe.as_ref();
         let mut child = Command::new(&exe)
             .stdin(Stdio::piped())
@@ -159,7 +160,7 @@ impl Task {
     /// 开始主循环
     fn enter_main_loop(&mut self) -> Result<()> {
         let mut lines = BufReader::new(self.stdout.take().unwrap()).lines();
-        loop {
+        for cycle in 0.. {
             if let Some(line) = lines.next() {
                 let line = line?;
                 if line == "FORCES:" {
@@ -179,6 +180,17 @@ impl Task {
     }
 }
 // core:1 ends here
+
+// [[file:../vasp-server.note::*compute][compute:1]]
+use gosh::gchemol::Molecule;
+use gosh::model::ModelProperties;
+
+impl Task {
+    pub fn compute_mol(&mut self, mol: &Molecule) -> Result<ModelProperties> {
+        todo!()
+    }
+}
+// compute:1 ends here
 
 // [[file:../vasp-server.note::*vasp][vasp:1]]
 #[derive(Debug, Default, Clone)]

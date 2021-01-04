@@ -11,6 +11,8 @@ nix = "0.19"
 bstr = "0.2"
 fs2 = "0.4"
 structopt = "0.3"
+tempfile = "3.0"
+envfile = "0.2"
 gut = { version = "0.1.4", package = "gchemol-gut" }
 
 [dev-dependencies]
