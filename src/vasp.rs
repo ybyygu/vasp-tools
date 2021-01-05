@@ -133,7 +133,18 @@ impl VaspServer {
         Ok(stdout)
     }
 
+    /// Test if task is ready for interactive
+    fn is_interactive(&self) -> bool {
+        self.task.is_some()
+    }
+
     fn start_or_interact(&mut self) -> Result<()> {
+        // For the first time, we should prepare an unique temp directory for
+        // VASP calculation (INCAR, POTCAR, ...)
+        if !self.is_interactive() {
+            self.prepare_compute_env()?;
+        }
+
         todo!()
     }
 }
@@ -168,13 +179,10 @@ use gosh::model::ChemicalModel;
 
 impl ChemicalModel for VaspServer {
     fn compute(&mut self, mol: &Molecule) -> Result<ModelProperties> {
-        // 1. 新建temp dir, 准备VASP计算文件
-        self.prepare_compute_env()?;
-
-        // 2. 启动VASP进程或与已开vasp进程交互
+        // 1. 启动VASP进程或与已开vasp进程交互
         self.start_or_interact()?;
 
-        // 3. 将当前mol结构发送给VASP, 等待计算结果
+        // 2. 将当前mol结构发送给VASP, 等待计算结果
         let task = self.task.as_mut().expect("vasp task");
         let mp = task.compute_mol(mol)?;
 
