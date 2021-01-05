@@ -1,0 +1,96 @@
++ /export/home/guowenping/apps/vasp/bin/run-vasp.sh
+ running on   72 total cores
+ distrk:  each k-point on   72 cores,    1 groups
+ distr:  one band on    1 cores,   72 groups
+ using from now: INCAR
+ vasp.5.3.5 31Mar14 (build Aug 17 2020 07:42:27) complex
+
+ POSCAR found type information on POSCAR  H  N  Cu Ni
+ POSCAR found :  4 types and      25 ions
+ scaLAPACK will be used
+
+ -----------------------------------------------------------------------------
+|                                                                             |
+|           W    W    AA    RRRRR   N    N  II  N    N   GGGG   !!!           |
+|           W    W   A  A   R    R  NN   N  II  NN   N  G    G  !!!           |
+|           W    W  A    A  R    R  N N  N  II  N N  N  G       !!!           |
+|           W WW W  AAAAAA  RRRRR   N  N N  II  N  N N  G  GGG   !            |
+|           WW  WW  A    A  R   R   N   NN  II  N   NN  G    G                |
+|           W    W  A    A  R    R  N    N  II  N    N   GGGG   !!!           |
+|                                                                             |
+|      For optimal performance we recommend to set                            |
+|        NCORE= 4 - approx SQRT( number of cores)                             |
+|      NCORE specifies how many cores store one orbital (NPAR=cpu/NCORE).     |
+|      This setting can  greatly improve the performance of VASP for DFT.     |
+|      The default, NPAR=number of cores might be grossly inefficient         |
+|      on modern multi-core architectures or massively parallel machines.     |
+|      Do your own testing !!!!                                               |
+|      Unfortunately you need to use the default for GW and RPA calculations. |
+|      (for HF NCORE is supported but not extensively tested yet)             |
+|                                                                             |
+ -----------------------------------------------------------------------------
+
+ LDA part: xc-table for Pade appr. of Perdew
+ found WAVECAR, reading the header
+ POSCAR, INCAR and KPOINTS ok, starting setup
+ WARNING: small aliasing (wrap around) errors must be expected
+ FFT: planning ...
+ reading WAVECAR
+ the WAVECAR file was read successfully
+ initial charge from wavefunction
+ entering main loop
+       N       E                     dE             d eps       ncg     rms          rms(c)
+DAV:   1    -0.129636840222E+03   -0.12964E+03   -0.42761E+02  1152   0.831E+01BRMIX: very serious problems
+ the old and the new charge density differ
+ old charge density:   228.75563 new  228.99982
+    0.479E+01
+RMM:   2    -0.156329415222E+04   -0.14337E+04   -0.11566E+03  1554   0.536E+01    0.183E+02
+RMM:   3    -0.185926137101E+03    0.13774E+04   -0.16829E+02  1083   0.367E+01    0.620E+01
+RMM:   4    -0.133366532435E+03    0.52560E+02   -0.50278E+01  1081   0.200E+01    0.685E+01
+RMM:   5    -0.108917683235E+03    0.24449E+02   -0.10176E+01  1038   0.920E+00    0.295E+01
+RMM:   6    -0.935241640288E+02    0.15394E+02   -0.99430E+00  1015   0.944E+00    0.175E+01
+RMM:   7    -0.920868740777E+02    0.14373E+01   -0.52961E-01  1015   0.203E+00    0.156E+01
+RMM:   8    -0.909727943844E+02    0.11141E+01   -0.70556E-01  1012   0.236E+00    0.233E+01
+RMM:   9    -0.895967093729E+02    0.13761E+01   -0.88664E-01   981   0.276E+00    0.169E+01
+RMM:  10    -0.878614415643E+02    0.17353E+01   -0.37479E-01   968   0.167E+00    0.143E+01
+RMM:  11    -0.878806512779E+02   -0.19210E-01   -0.46634E-02   816   0.513E-01    0.143E+01
+RMM:  12    -0.880774628458E+02   -0.19681E+00   -0.49735E-02   854   0.599E-01    0.137E+01
+RMM:  13    -0.881517542083E+02   -0.74291E-01   -0.54372E-03   698   0.177E-01    0.136E+01
+RMM:  14    -0.876408315500E+02    0.51092E+00   -0.16986E-01   935   0.971E-01    0.113E+01
+RMM:  15    -0.861183753147E+02    0.15225E+01   -0.71128E-01  1000   0.229E+00    0.737E+00
+RMM:  16    -0.857761245470E+02    0.34225E+00   -0.10616E-01  1004   0.931E-01    0.628E+00
+RMM:  17    -0.855007172284E+02    0.27541E+00   -0.59936E-02  1022   0.695E-01    0.493E+00
+RMM:  18    -0.854127178479E+02    0.87999E-01   -0.11662E-02   765   0.305E-01    0.476E+00
+RMM:  19    -0.853973288931E+02    0.15389E-01   -0.17848E-03   652   0.118E-01    0.460E+00
+RMM:  20    -0.852328664676E+02    0.16446E+00   -0.36073E-02   858   0.537E-01    0.335E+00
+RMM:  21    -0.851181860311E+02    0.11468E+00   -0.30752E-02   867   0.490E-01    0.212E+00
+RMM:  22    -0.850910124606E+02    0.27174E-01   -0.65767E-03   721   0.218E-01    0.151E+00
+RMM:  23    -0.850979480736E+02   -0.69356E-02   -0.19431E-03   647   0.131E-01
+FORCES:
+     0.2084558     0.2221942    -0.1762308
+    -0.1742340     0.2172782     0.2304866
+     0.2244132    -0.1794341     0.2106465
+    -0.2907316    -0.2746548    -0.2782190
+    -0.2941880    -0.0306001    -0.0141722
+     0.0496662     0.0726735     0.0444816
+     0.1123086     0.0860229     0.1162016
+    -0.1219796    -0.1310956    -0.1220814
+     0.0506194     0.0463865     0.0727771
+     0.1128081     0.1151755     0.0860939
+    -0.1206954    -0.1197812    -0.1331774
+     0.0432029     0.0397388     0.0384260
+     0.1306259     0.1350985     0.1344079
+     0.0461131     0.0480196     0.0460467
+     0.0772209     0.0462611     0.0451595
+     0.0826326     0.1161299     0.1175110
+    -0.1292788    -0.1164893    -0.1187606
+     0.0440070    -0.0778293    -0.0114870
+     0.0467313    -0.0069320    -0.0700733
+    -0.1247164    -0.1208438    -0.1237592
+    -0.0629527    -0.0057788    -0.0048078
+     0.2730080    -1.0226083     0.2238650
+     0.2801432     0.1941414    -1.0348002
+     0.5593697     0.4934936     0.4872095
+    -1.0225494     0.2534335     0.2342559
+   1 F= -.85097948E+02 E0= -.85096866E+02  d E =-.850979E+02  mag=     2.9646
+POSITIONS: reading from stdin
