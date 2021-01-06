@@ -65,7 +65,7 @@ impl Task {
 // [[file:../vasp-server.note::*stop][stop:1]]
 impl Drop for Task {
     fn drop(&mut self) {
-        if let Err(msg) = crate::vasp::stop_vasp_server() {
+        if let Err(msg) = crate::vasp::write_stopcar() {
             eprintln!("Failed to stop vasp server: {:?}", msg);
         }
     }
@@ -95,13 +95,19 @@ impl Task {
 use gosh::model::ModelProperties;
 
 impl Task {
-    pub fn compute_mol(&mut self, mol: &Molecule) -> Result<ModelProperties> {
+    fn start_or_interact(&mut self, mol: &Molecule) -> Result<()> {
         if !self.is_started() {
             mol.to_file("POSCAR").context("write POSCAR for initial calculation")?;
             self.start_cmd()?;
         } else {
             self.input_positions(mol)?;
         }
+
+        Ok(())
+    }
+
+    pub fn compute_mol(&mut self, mol: &Molecule) -> Result<ModelProperties> {
+        self.start_or_interact(mol)?;
 
         let stdout = self.stdout.as_mut().unwrap();
         let mut text = String::new();

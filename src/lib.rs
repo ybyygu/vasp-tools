@@ -7,6 +7,7 @@ use nix::unistd::Pid;
 // imports:1 ends here
 
 // [[file:../vasp-server.note::*mods][mods:1]]
+mod server;
 mod task;
 mod vasp;
 // mods:1 ends here
