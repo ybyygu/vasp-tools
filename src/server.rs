@@ -161,3 +161,15 @@ impl ChemicalModel for VaspServer {
     }
 }
 // pub/chemical model:1 ends here
+
+// [[file:../vasp-server.note::*test][test:1]]
+#[test]
+fn test_bbm_vasp_server() -> Result<()> {
+    gut::cli::setup_logger_for_test();
+    let d = "./tests/files/live-vasp";
+    let mut vasp = VaspServer::from_dir(d)?;
+    dbg!(vasp);
+
+    Ok(())
+}
+// test:1 ends here

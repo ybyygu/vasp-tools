@@ -65,8 +65,10 @@ impl Task {
 // [[file:../vasp-server.note::*stop][stop:1]]
 impl Drop for Task {
     fn drop(&mut self) {
-        if let Err(msg) = crate::vasp::write_stopcar() {
-            eprintln!("Failed to stop vasp server: {:?}", msg);
+        if self.is_started() {
+            if let Err(msg) = crate::vasp::write_stopcar() {
+                eprintln!("Failed to stop vasp server: {:?}", msg);
+            }
         }
     }
 }
