@@ -1,0 +1,41 @@
+# NBANDS=360               when SCF convergence slowly, enlarge it +20.
+ VOSKOWN=0                default is 0, whenever used PW91, set it 1.
+ GGA=PE                    RP stands for RPBE, PE for PBE, 91 for PW91
+ POTIM=0                default is 0.5 for frequency calculations a smaller values should be set ,0.02 example.
+# IOPT =2
+ -----------------------------------------
+Parameter for parallelization:
+-----------------------------------------
+   LPLANE = .TRUE.
+------------------------------------------
+Electronic Relaxation:
+------------------------------------------
+   LREAL  = Auto              Default for LREAL .FALSE. We recommend to use the real-space projection scheme for 
+                              systems containing more than 20 atoms.                           
+   PREC   = Normal            precision:Medium/High/Low   default medium . the same time, ROPT accuracy of approximately
+                              1meV/atom (10e-3). recommend to use PREC Normal for everyday calculations in VASP.4.5
+   EDIFF  = 1e-2              converge criterion: default=1e-4
+   ALGO  = FAST	              algotithm (8-CG, 48-RMM), Fast means intially use DAV algo then use RMM.
+   NELM=  30                   default is 60
+   NELMIN = 6                 the minimum number of electronic SC steps  Default is 2
+                              For most systems values between NELMIN=4 and NELMIN=6 are sufficient.
+   ISIF   = 2                 Relax ions and calculate stress tensor  default is 2. when 0, means Relax ions only. 
+   ISPIN  = 2                 spin polarized calculation (2-yes, 1-no) 
+   ENCUT= 300   
+-------------------------------------------
+Ionic Relaxation:
+-------------------------------------------
+#   EDIFFG =-3e-2             Converge criterion(positive for energy,negetive for force)
+   NSW    = 1000                  number of steps for IOM
+   IBRION = -1                 -1:no update 0:MD 1:quasi-New 2:CG
+--------------------------------------------
+DOS Related:
+--------------------------------------------
+   ISMEAR = 1
+   SIGMA  = 0.1
+--------------------------------------------   
+Output Control:                                
+--------------------------------------------   
+   LWAVE   .FALSE.
+   LCHARG= .FALSE.
+INTERACTIVE = .T.

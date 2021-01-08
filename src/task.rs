@@ -22,42 +22,21 @@ use std::io::LineWriter;
 
 #[derive(Debug)]
 pub(crate) struct Task {
-    exe: PathBuf,
     child: Option<Child>,
     stdin: Option<ChildStdin>,
     stdout: Option<BufReader<ChildStdout>>,
 }
 
 impl Task {
-    pub fn new<P: AsRef<Path>>(exe: P) -> Self {
-        let exe = exe.as_ref().to_owned();
-
-        Self {
-            exe,
-            child: None,
-            stdin: None,
-            stdout: None,
-        }
-    }
-
-    fn start_cmd(&mut self) -> Result<()> {
-        let mut child = Command::new(&self.exe)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .with_context(|| format!("run script: {:?}", &self.exe))?;
-
+    pub fn new(mut child: Child) -> Self {
         let stdout = child.stdout.take().and_then(|x| BufReader::new(x).into());
         let stdin = child.stdin.take();
 
-        self.stdin = stdin;
-        self.stdout = stdout;
-
-        Ok(())
-    }
-
-    fn is_started(&self) -> bool {
-        self.child.is_some()
+        Self {
+            stdin,
+            stdout,
+            child: child.into(),
+        }
     }
 }
 // base:1 ends here
@@ -65,10 +44,8 @@ impl Task {
 // [[file:../vasp-server.note::*stop][stop:1]]
 impl Drop for Task {
     fn drop(&mut self) {
-        if self.is_started() {
-            if let Err(msg) = crate::vasp::write_stopcar() {
-                eprintln!("Failed to stop vasp server: {:?}", msg);
-            }
+        if let Err(msg) = crate::vasp::write_stopcar() {
+            eprintln!("Failed to stop vasp server: {:?}", msg);
         }
     }
 }
@@ -77,7 +54,7 @@ impl Drop for Task {
 // [[file:../vasp-server.note::*input][input:1]]
 impl Task {
     /// write scaled positions to VASP stdin
-    fn input_positions(&mut self, mol: &Molecule) -> Result<()> {
+    pub fn input_positions(&mut self, mol: &Molecule) -> Result<()> {
         let lines: String = mol
             .get_scaled_positions()
             .expect("lattice")
@@ -97,20 +74,7 @@ impl Task {
 use gosh::model::ModelProperties;
 
 impl Task {
-    fn start_or_interact(&mut self, mol: &Molecule) -> Result<()> {
-        if !self.is_started() {
-            mol.to_file("POSCAR").context("write POSCAR for initial calculation")?;
-            self.start_cmd()?;
-        } else {
-            self.input_positions(mol)?;
-        }
-
-        Ok(())
-    }
-
     pub fn compute_mol(&mut self, mol: &Molecule) -> Result<ModelProperties> {
-        self.start_or_interact(mol)?;
-
         let stdout = self.stdout.as_mut().unwrap();
         let mut text = String::new();
         let mut lines = stdout.lines();

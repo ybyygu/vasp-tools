@@ -1,4 +1,5 @@
 // [[file:../vasp-server.note::*imports][imports:1]]
+use gchemol::prelude::*;
 use gchemol::Molecule;
 use gosh::gchemol;
 use gosh::model::ModelProperties;
@@ -88,6 +89,8 @@ impl VaspServer {
 
     /// Prepare computation env
     fn prepare_compute_env(&mut self) -> Result<()> {
+        use std::process::{Command, Stdio};
+
         trace!("calling script file: {:?}", self.run_file);
 
         // re-use the same scratch directory for multi-step calculation, e.g.
@@ -113,8 +116,85 @@ impl VaspServer {
 
         let cmdline = format!("{}", self.run_file.display());
         trace!("submit cmdline: {}", cmdline);
-        // FIXME: export BBM_*_DIR vars to child commands
-        self.task = crate::task::Task::new(&cmdline).into();
+        let mut child = Command::new(&cmdline)
+            .current_dir(ptdir)
+            .env("BBM_TPL_DIR", &tpl_dir)
+            .env("BBM_JOB_DIR", &cdir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("run script: {:?}", &cmdline))?;
+        self.task = crate::task::Task::new(child).into();
+
+        // for re-using the scratch directory
+        self.temp_dir = tdir_opt;
+
+        Ok(())
+    }
+
+    /// Render input using template
+    fn render_input(&self, mol: &Molecule) -> Result<String> {
+        // render input text with external template file
+        let txt = mol.render_with(&self.tpl_file)?;
+
+        Ok(txt)
+    }
+
+    fn is_server_started(&self) -> bool {
+        self.task.is_some()
+    }
+
+    fn start_or_interact(&mut self, mol: &Molecule) -> Result<()> {
+        if !self.is_server_started() {
+            self.prepare_compute_env()?;
+        } else {
+            self.task.as_mut().unwrap().input_positions(mol)?;
+        }
+
+        Ok(())
+    }
+}
+// prepare:1 ends here
+
+// [[file:../vasp-server.note::*cmd][cmd:1]]
+impl VaspServer {
+    /// 调用执行脚本, 派生进程
+    fn create_task(&mut self) -> Result<()> {
+        use std::process::{Command, Stdio};
+
+        trace!("calling script file: {:?}", self.run_file);
+        self.prepare_compute_env()?;
+
+        // re-use the same scratch directory for multi-step calculation, e.g.
+        // optimization.
+        let mut tdir_opt = self.temp_dir.take();
+        let tdir = tdir_opt.get_or_insert_with(|| {
+            self.new_scratch_directory()
+                .with_context(|| format!("Failed to create scratch directory"))
+                .unwrap()
+        });
+        let ptdir = tdir.path();
+
+        let tpl_dir = self
+            .tpl_file
+            .parent()
+            .ok_or(format_err!("bbm_tpl_file: invalid path: {:?}", self.tpl_file))?;
+
+        trace!("BBM_TPL_DIR: {:?}", tpl_dir);
+        let cdir = std::env::current_dir()?;
+        trace!("BBM_JOB_DIR: {:?}", cdir);
+
+        let cmdline = format!("{}", self.run_file.display());
+        trace!("submit cmdline: {}", cmdline);
+        let mut child = Command::new(&cmdline)
+            .current_dir(ptdir)
+            .env("BBM_TPL_DIR", &tpl_dir)
+            .env("BBM_JOB_DIR", &cdir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("run script: {:?}", &cmdline))?;
+        self.task = crate::task::Task::new(child).into();
 
         // for re-using the scratch directory
         self.temp_dir = tdir_opt;
@@ -122,7 +202,7 @@ impl VaspServer {
         Ok(())
     }
 }
-// prepare:1 ends here
+// cmd:1 ends here
 
 // [[file:../vasp-server.note::*pub/methods][pub/methods:1]]
 impl VaspServer {
@@ -153,6 +233,8 @@ use gosh::model::ChemicalModel;
 
 impl ChemicalModel for VaspServer {
     fn compute(&mut self, mol: &Molecule) -> Result<ModelProperties> {
+        self.start_or_interact(mol)?;
+
         let task = self.task.as_mut().expect("vasp task");
         let mp = task.compute_mol(mol)?;
         self.ncalls += 1;
@@ -161,15 +243,3 @@ impl ChemicalModel for VaspServer {
     }
 }
 // pub/chemical model:1 ends here
-
-// [[file:../vasp-server.note::*test][test:1]]
-#[test]
-fn test_bbm_vasp_server() -> Result<()> {
-    gut::cli::setup_logger_for_test();
-    let d = "./tests/files/live-vasp";
-    let mut vasp = VaspServer::from_dir(d)?;
-    dbg!(vasp);
-
-    Ok(())
-}
-// test:1 ends here

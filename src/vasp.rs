@@ -142,7 +142,7 @@ fn test_update_incar() -> Result<()> {
 
 // [[file:../vasp-server.note::*stopcar][stopcar:1]]
 pub(crate) fn write_stopcar() -> Result<()> {
-    // gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;
+    gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;
 
     Ok(())
 }
