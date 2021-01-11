@@ -44,9 +44,9 @@ impl Task {
 // [[file:../vasp-server.note::*stop][stop:1]]
 impl Drop for Task {
     fn drop(&mut self) {
-        if let Err(msg) = crate::vasp::write_stopcar() {
-            eprintln!("Failed to stop vasp server: {:?}", msg);
-        }
+        // if let Err(msg) = crate::vasp::write_stopcar() {
+        //     eprintln!("Failed to stop vasp server: {:?}", msg);
+        // }
     }
 }
 // stop:1 ends here
@@ -61,6 +61,13 @@ impl Task {
             .map(|[x, y, z]| format!("{:19.16}{:19.16}{:19.16}\n", x, y, z))
             .collect();
 
+        self.input(&lines)?;
+
+        Ok(())
+    }
+
+    /// write lines into task's stdin
+    pub fn input(&mut self, lines: &str) -> Result<()> {
         let mut writer = std::io::BufWriter::new(self.stdin.as_mut().unwrap());
         writer.write_all(lines.as_bytes())?;
         writer.flush()?;

@@ -1,6 +1,5 @@
 #! /bin/bash
 
-#cat > POSCAR
 cp "$BBM_TPL_DIR/INCAR" .
 cp "$BBM_TPL_DIR/POTCAR" .
 cp "$BBM_TPL_DIR/KPOINTS" .
@@ -13,7 +12,8 @@ echo "    -0.1832312     0.2056558     0.2151024"
 echo "  1 F= -.85045409E+02 E0= -.85044063E+02  d E =-.850454E+02  mag=     2.2094"
 echo "POSITIONS: reading from stdin"
 
-read -r xx
+ls .
+
 while read -r xx; do
     if [[ -f STOPCAR ]]; then
         echo "found STOPCAR"
@@ -27,4 +27,5 @@ while read -r xx; do
     echo "    -0.1832312     0.2056558     0.2151024"
     echo "  1 F= -.85045409E+02 E0= -.85044063E+02  d E =-.850454E+02  mag=     2.2094"
     echo "POSITIONS: reading from stdin"
+done
 

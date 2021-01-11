@@ -63,14 +63,14 @@ mod env {
 
             // copy run file to work/scratch directory, and make sure it is
             // executable
-            let dest = tdir.path().join("run").canonicalize()?;
+            let dest = tdir.path().join("run");
             std::fs::copy(&self.run_file, &dest)
                 .with_context(|| format!("copy {:?} to {:?}", &self.run_file, &dest))?;
             std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).context("chmod +x")?;
 
             self.temp_dir = tdir.into();
 
-            Ok(dest)
+            Ok(dest.canonicalize()?)
         }
 
         pub(super) fn from_dotenv(dir: &Path) -> Result<Self> {
@@ -97,14 +97,6 @@ mod env {
                 ncalls: 0,
             };
             Ok(bbm)
-        }
-
-        /// Render input using template
-        fn render_input(&self, mol: &Molecule) -> Result<String> {
-            // render input text with external template file
-            let txt = mol.render_with(&self.tpl_file)?;
-
-            Ok(txt)
         }
 
         // Construct from environment variables
@@ -138,10 +130,12 @@ mod cmd {
             self.task.is_some()
         }
 
-        /// 调用执行脚本, 派生进程
-        pub(super) fn submit_cmd(&mut self) -> Result<()> {
+        /// Call run script with `text` as its stdin
+        pub(super) fn submit_cmd(&mut self, text: &str) -> Result<()> {
             let run_file = self.prepare_compute_env()?;
-            trace!("call script file: {:?}", run_file);
+            // write POSCAR
+            // FIXME: looks dirty
+            gut::fs::write_to_file(run_file.with_file_name("POSCAR"), text)?;
 
             let tpl_dir = self
                 .tpl_file
@@ -153,7 +147,7 @@ mod cmd {
             trace!("BBM_JOB_DIR: {:?}", cdir);
 
             let cmdline = format!("{}", run_file.display());
-            trace!("submit cmdline: {}", cmdline);
+            debug!("submit cmdline: {}", cmdline);
             let tdir = run_file.parent().unwrap();
             let mut child = Command::new(&cmdline)
                 .current_dir(tdir)
@@ -163,9 +157,18 @@ mod cmd {
                 .stdout(Stdio::piped())
                 .spawn()
                 .with_context(|| format!("run script: {:?}", &cmdline))?;
+
             self.task = crate::task::Task::new(child).into();
 
             Ok(())
+        }
+
+        /// Render input using template
+        pub(super) fn render_input(&self, mol: &Molecule) -> Result<String> {
+            // render input text with external template file
+            let txt = mol.render_with(&self.tpl_file)?;
+
+            Ok(txt)
         }
     }
 }
@@ -173,8 +176,13 @@ mod cmd {
 
 // [[file:../vasp-server.note::*interact][interact:1]]
 impl VaspServer {
-    fn interact(&mut self, mol: &Molecule) -> Result<ModelProperties> {
-        self.task.as_mut().unwrap().input_positions(mol)?;
+    fn interact(&mut self, mol: &Molecule, first_run: bool) -> Result<ModelProperties> {
+        info!("interact with server ...");
+        if !first_run {
+            info!("input positions");
+            self.task.as_mut().unwrap().input_positions(mol)?;
+        }
+        info!("get outputs ...");
         let mp = self.task.as_mut().expect("vasp task").compute_mol(mol)?;
 
         Ok(mp)
@@ -211,14 +219,35 @@ use gosh::model::ChemicalModel;
 
 impl ChemicalModel for VaspServer {
     fn compute(&mut self, mol: &Molecule) -> Result<ModelProperties> {
-        if !self.is_server_started() {
-            todo!();
+        let first_run = !self.is_server_started();
+        if first_run {
+            let text = self.render_input(mol)?;
+            self.submit_cmd(&text)?;
         }
+        assert!(self.is_server_started());
 
-        let mp = self.interact(mol)?;
+        let mp = self.interact(mol, first_run)?;
         self.ncalls += 1;
 
         Ok(mp)
     }
 }
 // pub/chemical model:1 ends here
+
+// [[file:../vasp-server.note::*test][test:1]]
+#[test]
+fn test_bbm_vasp_server() -> Result<()> {
+    gut::cli::setup_logger_for_test();
+    let d = "./tests/files/live-vasp";
+    let mut vasp = VaspServer::from_dir(d)?;
+    let mol = Molecule::from_file("./tests/files/live-vasp/POSCAR")?;
+    let mp = vasp.compute(&mol)?;
+    dbg!(mp);
+    let mp = vasp.compute(&mol)?;
+    dbg!(mp);
+    let mp = vasp.compute(&mol)?;
+    dbg!(mp);
+
+    Ok(())
+}
+// test:1 ends here
