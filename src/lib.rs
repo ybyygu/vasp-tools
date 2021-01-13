@@ -99,4 +99,7 @@ pub fn daemonize() -> Result<PidFile> {
 
 // [[file:../vasp-server.note::*pub][pub:1]]
 pub use crate::task::*;
+
+// FIXME: remove
+pub use crate::socket::*;
 // pub:1 ends here

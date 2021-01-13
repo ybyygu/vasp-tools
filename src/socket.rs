@@ -1,16 +1,16 @@
 // [[file:../vasp-server.note::*imports][imports:1]]
 use gut::prelude::*;
 
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixStream, UnixListener};
 use std::path::Path;
 // imports:1 ends here
 
 // [[file:../vasp-server.note::*constants][constants:1]]
-const SOCKET_FILE: &str = "VASP.socket";
+const SOCKET_FILE: &str = "VASP.sock";
 // constants:1 ends here
 
 // [[file:../vasp-server.note::*base][base:1]]
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -21,6 +21,7 @@ pub(crate) struct Task {
     child: Child,
     stdout: Option<ChildStdout>,
     stdin: Option<ChildStdin>,
+    stderr: Option<ChildStderr>,
 
     socket_file: Option<SocketFile>,
 }
@@ -31,16 +32,19 @@ impl Task {
         let mut child = Command::new(&exe)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .with_context(|| format!("run script: {:?}", exe))?;
 
-        let stdout = child.stdout.take();
         let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
 
         Ok(Self {
             child,
             stdin,
             stdout,
+            stderr,
             socket_file: None,
         })
     }
@@ -49,23 +53,24 @@ impl Task {
 
 // [[file:../vasp-server.note::*core][core:1]]
 impl Task {
-    // 从POSCAR中提取分数坐标, 写入vasp stdin
+    // 从socket中读取, 并写入子进程的stdin
     fn take_action_input(&mut self) -> Result<()> {
+        let socket = self.socket_file.as_mut().expect("no active socket");
+        socket.wait_for_client()?;
+        let s = socket.recv_input()?;
+
+        let mut writer = std::io::BufWriter::new(self.stdin.as_mut().unwrap());
+        writer.write_all(s.as_bytes())?;
+        writer.flush()?;
+
         Ok(())
     }
 
-    /// 输出当前结构对应的计算结果
-    fn take_action_output(&mut self) -> Result<()> {
-        // let energy = self.computed.get_energy().expect("no energy");
-        // let forces = self.computed.get_forces().expect("no forces");
-
-        // // FIXME: rewrite
-        // let mut mp = gosh::model::ModelProperties::default();
-        // mp.set_forces(dbg!(forces));
-        // mp.set_energy(dbg!(energy));
-        // let socket = self.socket_file.as_mut().expect("no active socket");
-        // socket.wait_for_client()?;
-        // socket.send_output(&mp.to_string())?;
+    // 从子进程中读取stdout, 将写入到socket
+    fn take_action_output(&mut self, txt: &str) -> Result<()> {
+        let socket = self.socket_file.as_mut().expect("no active socket");
+        socket.wait_for_client()?;
+        socket.send_output(txt)?;
 
         Ok(())
     }
@@ -112,15 +117,13 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct SocketFile {
     path: PathBuf,
-    listener: std::os::unix::net::UnixListener,
-    stream: Option<std::os::unix::net::UnixStream>,
+    listener: UnixListener,
+    stream: Option<UnixStream>,
 }
 
 impl SocketFile {
     // Create a new VASP server. Return error if the server already started.
     fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
-        use std::os::unix::net::UnixListener;
-
         let path = path.as_ref();
         if path.exists() {
             bail!("VASP server already started!");
@@ -135,7 +138,8 @@ impl SocketFile {
     }
 
     fn wait_for_client(&mut self) -> Result<()> {
-        let (stream, _) = self.listener.accept()?;
+        info!("wait for new client");
+        let (stream, _) = self.listener.accept().context("accept new unix socket client")?;
         self.stream = stream.into();
 
         Ok(())
@@ -175,7 +179,7 @@ impl Drop for SocketFile {
 }
 // server:1 ends here
 
-// [[file:../vasp-server.note::*cli][cli:1]]
+// [[file:../vasp-server.note::*client][client:1]]
 mod client {
     use super::*;
     use structopt::*;
@@ -198,7 +202,9 @@ mod client {
         Ok(())
     }
 }
+// client:1 ends here
 
+// [[file:../vasp-server.note::*server][server:1]]
 mod server {
     use super::*;
     use structopt::*;
@@ -214,6 +220,56 @@ mod server {
         script_file: PathBuf,
     }
 
+    // 启动script进程, 同时将stdin, stdout, stderr都导向stream
+    fn start_cmd(script: &Path, stream: UnixStream) -> Result<Child> {
+        info!("run script: {:?}", script);
+        
+        use std::os::unix::io::{AsRawFd, FromRawFd};
+
+        let mut i_stream = stream.try_clone()?;
+        let mut o_stream = stream.try_clone()?;
+        let mut e_stream = stream.try_clone()?;
+
+        // make unix stream as file descriptors for process stdio
+        let (i_cmd, o_cmd, e_cmd) = unsafe {
+            use std::process::Stdio;
+            (
+                Stdio::from_raw_fd(i_stream.as_raw_fd()),
+                Stdio::from_raw_fd(o_stream.as_raw_fd()),
+                Stdio::from_raw_fd(e_stream.as_raw_fd()),
+            )
+        };
+
+        let child = Command::new(script).stdin(i_cmd).stdout(o_cmd).stderr(e_cmd).spawn()?;
+
+        Ok(child)
+    }
+
+    // 以socket_file启动server, 将stream里的信息依样处理给client stream
+    fn serve_socket(mut server_stream: UnixStream, socket_file: &Path) -> Result<()> {
+        info!("serve socket {:?}", socket_file);
+        
+        let mut lines = BufReader::new(server_stream.try_clone()?).lines();
+        let mut server = SocketFile::create(socket_file)?;
+        loop {
+            server.wait_for_client()?;
+            let client_stream = server.stream();
+            // 1. 接收client input
+            let mut text = String::new();
+            info!("read str from client");
+            let _ = client_stream.read_to_string(&mut text)?;
+            info!("write client input to server");
+            server_stream.write_all(dbg!(text).as_bytes())?;
+
+            while let Some(line) = lines.next() {
+                let line = line?;
+                client_stream.write_all(dbg!(line).as_bytes())?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn server_enter_main() -> Result<()> {
         let args = Cli::from_args();
         args.verbose.setup_logger();
@@ -221,18 +277,20 @@ mod server {
         let socket_file: &Path = SOCKET_FILE.as_ref();
         assert!(!socket_file.exists(), "daemon server already started!");
 
-        let mut task = Task::new(&args.script_file)?;
-        // FIXME: rewrite the next line
-        task.socket_file = SocketFile::create(SOCKET_FILE)?.into();
+        // 建新一套通信通道, 将子进程的stdio都导入其中
+        let (socket1, mut socket2) = UnixStream::pair()?;
 
-        // Start VASP server in background if not started yet
-        // FIXME: rewrite using daemon
-        task.enter_main_loop()?;
+        let mut child = start_cmd(&args.script_file, socket1)?;
+        serve_socket(socket2, socket_file)?;
+
+        child.wait()?;
 
         Ok(())
     }
 }
+// server:1 ends here
 
+// [[file:../vasp-server.note::*pub][pub:1]]
 pub use self::client::*;
 pub use self::server::*;
-// cli:1 ends here
+// pub:1 ends here
