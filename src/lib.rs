@@ -8,6 +8,7 @@ use nix::unistd::Pid;
 
 // [[file:../vasp-server.note::*mods][mods:1]]
 mod server;
+mod socket;
 mod task;
 mod vasp;
 // mods:1 ends here
