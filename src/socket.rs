@@ -100,14 +100,76 @@ impl Task {
 // core:1 ends here
 
 // [[file:../vasp-server.note::*client][client:1]]
-fn read_output_from_socket_file(socket_file: &Path) -> Result<String> {
-    info!("connecting to socket file: {:?}", socket_file);
+mod client {
+    use super::*;
+    use structopt::*;
 
-    let mut stream = UnixStream::connect(socket_file)?;
-    let mut output = String::new();
-    stream.read_to_string(&mut output)?;
+    struct Client {
+        stream: UnixStream,
+        reader: BufReader<UnixStream>,
+    }
 
-    Ok(output)
+    impl Client {
+        fn connect(socket_file: &Path) -> Result<Self> {
+            info!("connecting to socket file: {:?}", socket_file);
+            let stream = UnixStream::connect(socket_file)?;
+            let reader = BufReader::new(stream.try_clone()?);
+
+            let client = Self { stream, reader };
+            Ok(client)
+        }
+
+        fn read(&mut self) -> Result<String> {
+            info!("read server output");
+            let mut txt = String::new();
+            while let Some(_) = self.reader.read_line(&mut txt).ok().filter(|&x| x != 0) {
+                dbg!(&txt);
+            }
+            Ok(txt)
+        }
+
+        fn write(&mut self, msg: &str) -> Result<()> {
+            info!("write to server");
+            let _ = self.stream.write_all(msg.as_bytes())?;
+            self.stream.flush()?;
+
+            Ok(())
+        }
+    }
+
+    fn read_output_from_socket_file(socket_file: &Path) -> Result<String> {
+        info!("connecting to socket file: {:?}", socket_file);
+
+        let mut stream = UnixStream::connect(socket_file)?;
+        let mut output = String::new();
+        stream.read_to_string(&mut output)?;
+
+        Ok(output)
+    }
+
+    /// Client for VASP server
+    #[derive(Debug, StructOpt)]
+    struct Cli {
+        #[structopt(flatten)]
+        verbose: gut::cli::Verbosity,
+
+        /// Path to script running VASP
+        #[structopt(short = "u")]
+        socket_file: PathBuf,
+    }
+
+    pub fn client_enter_main() -> Result<()> {
+        let args = Cli::from_args();
+        args.verbose.setup_logger();
+
+        let mut client = Client::connect(&args.socket_file)?;
+
+        client.write("xx\n")?;
+        let s = client.read()?;
+        dbg!(s);
+
+        Ok(())
+    }
 }
 // client:1 ends here
 
@@ -179,31 +241,6 @@ impl Drop for SocketFile {
 }
 // server:1 ends here
 
-// [[file:../vasp-server.note::*client][client:1]]
-mod client {
-    use super::*;
-    use structopt::*;
-
-    /// Client for VASP server
-    #[derive(Debug, StructOpt)]
-    struct Cli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-    }
-
-    pub fn client_enter_main() -> Result<()> {
-        let args = Cli::from_args();
-        args.verbose.setup_logger();
-
-        let s = read_output_from_socket_file(SOCKET_FILE.as_ref())?;
-
-        println!("{}", s);
-
-        Ok(())
-    }
-}
-// client:1 ends here
-
 // [[file:../vasp-server.note::*server][server:1]]
 mod server {
     use super::*;
@@ -263,7 +300,9 @@ mod server {
 
             while let Some(line) = lines.next() {
                 let line = line?;
-                client_stream.write_all(dbg!(line).as_bytes())?;
+                client_stream.write_all(dbg!(line).as_bytes()).context("write server output")?;
+                client_stream.flush()?;
+                
             }
         }
 
