@@ -10,6 +10,7 @@ gosh = { version = ">=0.0.1", features=["adhoc"] }
 nix = "0.19"
 bstr = "0.2"
 fs2 = "0.4"
+bytes = "1"
 structopt = "0.3"
 tempfile = "3.0"
 envfile = "0.2"

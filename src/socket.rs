@@ -51,54 +51,6 @@ impl Task {
 }
 // base:1 ends here
 
-// [[file:../vasp-server.note::*core][core:1]]
-impl Task {
-    // 从socket中读取, 并写入子进程的stdin
-    fn take_action_input(&mut self) -> Result<()> {
-        let socket = self.socket_file.as_mut().expect("no active socket");
-        socket.wait_for_client()?;
-        let s = socket.recv_input()?;
-
-        let mut writer = std::io::BufWriter::new(self.stdin.as_mut().unwrap());
-        writer.write_all(s.as_bytes())?;
-        writer.flush()?;
-
-        Ok(())
-    }
-
-    // 从子进程中读取stdout, 将写入到socket
-    fn take_action_output(&mut self, txt: &str) -> Result<()> {
-        let socket = self.socket_file.as_mut().expect("no active socket");
-        socket.wait_for_client()?;
-        socket.send_output(txt)?;
-
-        Ok(())
-    }
-
-    /// 开始主循环
-    fn enter_main_loop(&mut self) -> Result<()> {
-        // let mut lines = BufReader::new(self.stdout.take().unwrap()).lines();
-        // for cycle in 0.. {
-        //     if let Some(line) = lines.next() {
-        //         let line = line?;
-        //         if line == "FORCES:" {
-        //             self.enter_state_read_forces();
-        //         } else if line.trim_start().starts_with("1 F=") {
-        //             self.enter_state_read_energy();
-        //         } else if line == "POSITIONS: reading from stdin" {
-        //             self.enter_state_input_positions();
-        //         }
-        //         self.take_action(&line)?;
-        //     } else {
-        //         break;
-        //     }
-        // }
-
-        Ok(())
-    }
-}
-// core:1 ends here
-
 // [[file:../vasp-server.note::*client][client:1]]
 mod client {
     use super::*;
@@ -110,6 +62,7 @@ mod client {
     }
 
     impl Client {
+        // 与socket server建立通信
         fn connect(socket_file: &Path) -> Result<Self> {
             info!("connecting to socket file: {:?}", socket_file);
             let stream = UnixStream::connect(socket_file)?;
@@ -119,32 +72,33 @@ mod client {
             Ok(client)
         }
 
-        fn read(&mut self) -> Result<String> {
+        // 从服务端stdout中读取一行出来
+        fn read_line(&mut self) -> Result<String> {
             info!("read server output");
+            let op = codec::ServerOp::Read;
+            self.send_op(op)?;
+
             let mut txt = String::new();
-            while let Some(_) = self.reader.read_line(&mut txt).ok().filter(|&x| x != 0) {
-                dbg!(&txt);
-            }
+            self.reader.read_line(&mut txt)?;
+
             Ok(txt)
         }
 
-        fn write(&mut self, msg: &str) -> Result<()> {
+        // 将msg写入server端的stdin
+        fn write_stdin(&mut self, msg: &str) -> Result<()> {
             info!("write to server");
-            let _ = self.stream.write_all(msg.as_bytes())?;
+            let op = codec::ServerOp::Input(msg.to_string());
+            self.send_op(op)?;
+
+            Ok(())
+        }
+
+        fn send_op(&mut self, op: codec::ServerOp) -> Result<()> {
+            self.stream.write_all(&op.encode())?;
             self.stream.flush()?;
 
             Ok(())
         }
-    }
-
-    fn read_output_from_socket_file(socket_file: &Path) -> Result<String> {
-        info!("connecting to socket file: {:?}", socket_file);
-
-        let mut stream = UnixStream::connect(socket_file)?;
-        let mut output = String::new();
-        stream.read_to_string(&mut output)?;
-
-        Ok(output)
     }
 
     /// Client for VASP server
@@ -164,8 +118,8 @@ mod client {
 
         let mut client = Client::connect(&args.socket_file)?;
 
-        client.write("xx\n")?;
-        let s = client.read()?;
+        client.write_stdin("xx\n")?;
+        let s = client.read_line()?;
         dbg!(s);
 
         Ok(())
@@ -210,25 +164,6 @@ impl SocketFile {
     fn stream(&mut self) -> &mut UnixStream {
         self.stream.as_mut().expect("unix stream not ready")
     }
-
-    /// 将`out`发送给client
-    fn send_output(&mut self, out: &str) -> Result<()> {
-        debug!("send out to client ...");
-        write!(self.stream(), "{}", out);
-        debug!("shutdown socket stream ...");
-        self.stream().shutdown(std::net::Shutdown::Both)?;
-
-        Ok(())
-    }
-
-    /// 向client请求输入新的结构
-    fn recv_input(&mut self) -> Result<String> {
-        let mut inputs = String::new();
-        let nbytes = self.stream().read_to_string(&mut inputs)?;
-        assert_ne!(nbytes, 0);
-
-        Ok(inputs)
-    }
 }
 
 impl Drop for SocketFile {
@@ -240,6 +175,119 @@ impl Drop for SocketFile {
     }
 }
 // server:1 ends here
+
+// [[file:../vasp-server.note::*codec][codec:1]]
+pub(self) mod codec {
+    use super::*;
+    use bytes::{Buf, BufMut, Bytes};
+    use std::io::Read;
+
+    #[derive(Debug, Eq, PartialEq, Clone)]
+    // client端发送到server端的指令
+    pub enum ServerOp {
+        // 将client发来的数据写入stdin
+        Input(String),
+        // 从stdout中读一行
+        Read,
+        // 停止子进程
+        Stop,
+    }
+
+    impl ServerOp {
+        pub fn encode(&self) -> Vec<u8> {
+            use ServerOp::*;
+
+            let mut buf = vec![];
+            match self {
+                Input(msg) => {
+                    buf.put_u8(b'0');
+                    buf.put_u32(msg.len() as u32);
+                    buf.put(msg.as_bytes());
+                    buf
+                }
+                Read => {
+                    buf.put_u8(b'1');
+                    buf.put_u32(0);
+                    buf
+                }
+                Stop => {
+                    buf.put_u8(b'X');
+                    buf.put_u32(0);
+                    buf
+                }
+                _ => {
+                    todo!();
+                }
+            }
+        }
+
+        pub fn decode<R: Read>(r: &mut R) -> Result<Self> {
+            let mut buf = vec![0_u8; 5];
+            r.read_exact(&mut buf)?;
+            let mut buf = &buf[..];
+
+            let op = match buf.get_u8() {
+                b'0' => {
+                    let n = buf.get_u32() as usize;
+                    let mut msg = vec![0; n];
+                    r.read_exact(&mut msg)?;
+                    let msg = String::from_utf8_lossy(&msg).to_string();
+                    ServerOp::Input(msg)
+                }
+                b'1' => ServerOp::Read,
+                b'X' => ServerOp::Stop,
+                _ => {
+                    todo!();
+                }
+            };
+            Ok(op)
+        }
+    }
+
+    /// Encode text message into bytes for transfering between unix stream
+    pub fn encode(msg: &str) -> Result<Vec<u8>> {
+        let mut buf = vec![];
+        buf.put_u32(msg.len() as u32);
+        buf.put(msg.as_bytes());
+
+        Ok(buf)
+    }
+
+    pub fn decode<R: Read>(r: &mut R) -> Result<String> {
+        let mut buf = vec![0_u8; 4];
+        r.read_exact(&mut buf)?;
+        let mut buf = &buf[..];
+        let n = buf.get_u32() as usize;
+
+        let mut msg = vec![0; n];
+        r.read_exact(&mut msg)?;
+        let decoded = String::from_utf8_lossy(&msg);
+        Ok(decoded.to_string())
+    }
+
+    #[test]
+    fn test_codec() -> Result<()> {
+        let txt = "hello world\ngood night\n";
+
+        let op = ServerOp::Input(txt.to_string());
+        let d = op.encode();
+        let decoded_op = ServerOp::decode(&mut d.as_slice())?;
+        assert_eq!(decoded_op, op);
+
+        let op = ServerOp::Stop;
+        let d = op.encode();
+        let decoded_op = ServerOp::decode(&mut d.as_slice())?;
+        assert_eq!(decoded_op, op);
+
+        let op = ServerOp::Read;
+        let d = op.encode();
+        let decoded_op = ServerOp::decode(&mut d.as_slice())?;
+        assert_eq!(decoded_op, op);
+
+        Ok(())
+    }
+}
+// codec:1 ends here
 
 // [[file:../vasp-server.note::*server][server:1]]
 mod server {
@@ -260,7 +308,7 @@ mod server {
     // 启动script进程, 同时将stdin, stdout, stderr都导向stream
     fn start_cmd(script: &Path, stream: UnixStream) -> Result<Child> {
         info!("run script: {:?}", script);
-        
+
         use std::os::unix::io::{AsRawFd, FromRawFd};
 
         let mut i_stream = stream.try_clone()?;
@@ -285,24 +333,36 @@ mod server {
     // 以socket_file启动server, 将stream里的信息依样处理给client stream
     fn serve_socket(mut server_stream: UnixStream, socket_file: &Path) -> Result<()> {
         info!("serve socket {:?}", socket_file);
-        
+
         let mut lines = BufReader::new(server_stream.try_clone()?).lines();
         let mut server = SocketFile::create(socket_file)?;
         loop {
             server.wait_for_client()?;
             let client_stream = server.stream();
             // 1. 接收client input
-            let mut text = String::new();
             info!("read str from client");
-            let _ = client_stream.read_to_string(&mut text)?;
+            let text = codec::decode(client_stream)?;
             info!("write client input to server");
             server_stream.write_all(dbg!(text).as_bytes())?;
+            server_stream.flush()?;
 
-            while let Some(line) = lines.next() {
-                let line = line?;
-                client_stream.write_all(dbg!(line).as_bytes()).context("write server output")?;
-                client_stream.flush()?;
-                
+            // 2. 准备接收server端的输出
+            log_dbg!();
+            loop {
+                log_dbg!();
+                // 先确定client准备好接收数据
+                if let Ok(Some(err)) = client_stream.take_error() {
+                    dbg!(err);
+                    break;
+                }
+                // 读一行, 写一行
+                log_dbg!();
+                if let Some(line) = lines.next() {
+                    log_dbg!();
+                    writeln!(client_stream, "{}", dbg!(line?)).context("write server output")?;
+                    log_dbg!();
+                    // client_stream.flush()?;
+                }
             }
         }
 
