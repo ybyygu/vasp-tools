@@ -330,41 +330,62 @@ mod server {
         Ok(child)
     }
 
+    fn handle_client(op: codec::ServerOp) -> Result<()> {
+        todo!()
+    }
+
     // 以socket_file启动server, 将stream里的信息依样处理给client stream
     fn serve_socket(mut server_stream: UnixStream, socket_file: &Path) -> Result<()> {
+        use codec::ServerOp;
+
         info!("serve socket {:?}", socket_file);
 
         let mut lines = BufReader::new(server_stream.try_clone()?).lines();
         let mut server = SocketFile::create(socket_file)?;
         loop {
+            // 1. 等待client发送指令
             server.wait_for_client()?;
             let client_stream = server.stream();
-            // 1. 接收client input
-            info!("read str from client");
-            let text = codec::decode(client_stream)?;
-            info!("write client input to server");
-            server_stream.write_all(dbg!(text).as_bytes())?;
-            server_stream.flush()?;
-
-            // 2. 准备接收server端的输出
-            log_dbg!();
+            info!("read instruction from client");
             loop {
-                log_dbg!();
-                // 先确定client准备好接收数据
-                if let Ok(Some(err)) = client_stream.take_error() {
-                    dbg!(err);
-                    break;
-                }
-                // 读一行, 写一行
-                log_dbg!();
-                if let Some(line) = lines.next() {
-                    log_dbg!();
-                    writeln!(client_stream, "{}", dbg!(line?)).context("write server output")?;
-                    log_dbg!();
-                    // client_stream.flush()?;
+                let op = ServerOp::decode(client_stream)?;
+                match op {
+                    ServerOp::Input(msg) => {
+                        server_stream.write_all(msg.as_bytes())?;
+                        server_stream.flush()?;
+                    }
+                    ServerOp::Read => {
+                        // 读一行, 写一行
+                        log_dbg!();
+                        if let Some(line) = lines.next() {
+                            log_dbg!();
+                            writeln!(client_stream, "{}", dbg!(line?))?;
+                            log_dbg!();
+                            client_stream.flush()?;
+                        }
+                    }
+                    ServerOp::Stop => {
+                        break;
+                    }
+                    _ => {
+                        todo!();
+                    }
                 }
             }
+            break;
         }
+        // loop {
+        //     // 2. 准备接收server端的输出
+        //     log_dbg!();
+        //     loop {
+        //         log_dbg!();
+        //         // 先确定client准备好接收数据
+        //         if let Ok(Some(err)) = client_stream.take_error() {
+        //             dbg!(err);
+        //             break;
+        //         }
+        //     }
+        // }
 
         Ok(())
     }
