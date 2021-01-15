@@ -85,7 +85,7 @@ mod client {
 
         // 将msg写入server端的stdin
         fn write_stdin(&mut self, msg: &str) -> Result<()> {
-            info!("write to server");
+            info!("write input server");
             let op = codec::ServerOp::Input(msg.to_string());
             self.send_op(op)?;
 
@@ -221,7 +221,9 @@ pub(self) mod codec {
 
         pub fn decode<R: Read>(r: &mut R) -> Result<Self> {
             let mut buf = vec![0_u8; 1];
+            log_dbg!();
             r.read_exact(&mut buf)?;
+            log_dbg!();
             let mut buf = &buf[..];
 
             let op = match buf.get_u8() {
@@ -271,18 +273,24 @@ pub(self) mod codec {
     }
 
     fn decode<R: Read>(r: &mut R) -> Result<Vec<u8>> {
+        log_dbg!();
         let mut msg = vec![0_u8; 4];
         r.read_exact(&mut msg)?;
+        log_dbg!();
         let mut buf = &msg[..];
         let n = buf.get_u32() as usize;
         let mut msg = vec![0_u8; n];
+        log_dbg!();
         r.read_exact(&mut msg)?;
+        log_dbg!();
         Ok(msg)
     }
 
     pub fn send_msg(stream: &mut UnixStream, msg: &[u8]) -> Result<()> {
+        log_dbg!();
         stream.write_all(msg)?;
         stream.flush()?;
+        log_dbg!();
         Ok(())
     }
 
@@ -359,38 +367,38 @@ mod server {
             // 1. 等待client发送指令
             server.wait_for_client()?;
             let client_stream = server.stream();
-            info!("read instruction from client");
-            let op = ServerOp::decode(client_stream)?;
-            match op {
-                // Write `msg` into server stream
-                ServerOp::Input(msg) => {
-                    info!("got input from client");
-                    codec::send_msg(&mut server_stream, msg.as_bytes())?;
-                    log_dbg!();
-                }
-                // Read lines from server_stream until found `pattern`
-                ServerOp::Read(pattern) => {
-                    info!("client asks for output");
-                    // collect text line by line until we found the `pattern`
-                    let mut txt = String::new();
-                    while let Some(line) = lines.next() {
+            while let Ok(op) = ServerOp::decode(client_stream) {
+                match op {
+                    // Write `msg` into server stream
+                    ServerOp::Input(msg) => {
+                        info!("got input from client");
+                        codec::send_msg(&mut server_stream, msg.as_bytes())?;
                         log_dbg!();
-                        let line = line?;
-                        writeln!(&mut txt, "{}", line)?;
-                        if dbg!(line).contains(&pattern) {
-                            break;
-                        }
                     }
-                    log_dbg!();
-                    // send colelcted text to client
-                    codec::send_msg_encode(client_stream, &txt)?;
-                }
-                ServerOp::Stop => {
-                    log_dbg!();
-                    break;
-                }
-                _ => {
-                    todo!();
+                    // Read lines from server_stream until found `pattern`
+                    ServerOp::Read(pattern) => {
+                        info!("client asks for output");
+                        // collect text line by line until we found the `pattern`
+                        let mut txt = String::new();
+                        while let Some(line) = lines.next() {
+                            log_dbg!();
+                            let line = line?;
+                            writeln!(&mut txt, "{}", line)?;
+                            if dbg!(line).contains(&pattern) {
+                                break;
+                            }
+                        }
+                        log_dbg!();
+                        // send colelcted text to client
+                        codec::send_msg_encode(client_stream, &txt)?;
+                    }
+                    ServerOp::Stop => {
+                        log_dbg!();
+                        break;
+                    }
+                    _ => {
+                        todo!();
+                    }
                 }
             }
             log_dbg!();
