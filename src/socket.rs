@@ -58,7 +58,6 @@ mod client {
 
     struct Client {
         stream: UnixStream,
-        reader: BufReader<UnixStream>,
     }
 
     impl Client {
@@ -66,20 +65,20 @@ mod client {
         fn connect(socket_file: &Path) -> Result<Self> {
             info!("connecting to socket file: {:?}", socket_file);
             let stream = UnixStream::connect(socket_file)?;
-            let reader = BufReader::new(stream.try_clone()?);
 
-            let client = Self { stream, reader };
+            let client = Self { stream };
             Ok(client)
         }
 
-        // 从服务端stdout中读取一行出来
-        fn read_line(&mut self) -> Result<String> {
-            info!("read server output");
-            let op = codec::ServerOp::Read;
+        // 从服务端stdout中读取数据, 直接包含pattern的行
+        fn read_expect(&mut self, pattern: &str) -> Result<String> {
+            info!("Ask stdout from server ...");
+            let op = codec::ServerOp::Read(pattern.into());
             self.send_op(op)?;
 
-            let mut txt = String::new();
-            self.reader.read_line(&mut txt)?;
+            info!("receiving output");
+            let txt = codec::recv_msg_decode(&mut self.stream)?;
+            info!("got {} bytes", txt.len());
 
             Ok(txt)
         }
@@ -119,7 +118,7 @@ mod client {
         let mut client = Client::connect(&args.socket_file)?;
 
         client.write_stdin("xx\n")?;
-        let s = client.read_line()?;
+        let s = client.read_expect("POSITIONS: reading from stdin")?;
         dbg!(s);
 
         Ok(())
@@ -187,8 +186,8 @@ pub(self) mod codec {
     pub enum ServerOp {
         // 将client发来的数据写入stdin
         Input(String),
-        // 从stdout中读一行
-        Read,
+        // 从stdout中逐行读取, 直至读到符合pattern的行为止
+        Read(String),
         // 停止子进程
         Stop,
     }
@@ -201,18 +200,17 @@ pub(self) mod codec {
             match self {
                 Input(msg) => {
                     buf.put_u8(b'0');
-                    buf.put_u32(msg.len() as u32);
-                    buf.put(msg.as_bytes());
+                    encode(&mut buf, msg);
                     buf
                 }
-                Read => {
+                Read(pattern) => {
                     buf.put_u8(b'1');
-                    buf.put_u32(0);
+                    encode(&mut buf, pattern);
                     buf
                 }
                 Stop => {
                     buf.put_u8(b'X');
-                    buf.put_u32(0);
+                    encode(&mut buf, "");
                     buf
                 }
                 _ => {
@@ -222,19 +220,19 @@ pub(self) mod codec {
         }
 
         pub fn decode<R: Read>(r: &mut R) -> Result<Self> {
-            let mut buf = vec![0_u8; 5];
+            let mut buf = vec![0_u8; 1];
             r.read_exact(&mut buf)?;
             let mut buf = &buf[..];
 
             let op = match buf.get_u8() {
                 b'0' => {
-                    let n = buf.get_u32() as usize;
-                    let mut msg = vec![0; n];
-                    r.read_exact(&mut msg)?;
-                    let msg = String::from_utf8_lossy(&msg).to_string();
+                    let msg = String::from_utf8_lossy(&decode(r)?).to_string();
                     ServerOp::Input(msg)
                 }
-                b'1' => ServerOp::Read,
+                b'1' => {
+                    let pattern = String::from_utf8_lossy(&decode(r)?).to_string();
+                    ServerOp::Read(pattern)
+                }
                 b'X' => ServerOp::Stop,
                 _ => {
                     todo!();
@@ -242,27 +240,6 @@ pub(self) mod codec {
             };
             Ok(op)
         }
-    }
-
-    /// Encode text message into bytes for transfering between unix stream
-    pub fn encode(msg: &str) -> Result<Vec<u8>> {
-        let mut buf = vec![];
-        buf.put_u32(msg.len() as u32);
-        buf.put(msg.as_bytes());
-
-        Ok(buf)
-    }
-
-    pub fn decode<R: Read>(r: &mut R) -> Result<String> {
-        let mut buf = vec![0_u8; 4];
-        r.read_exact(&mut buf)?;
-        let mut buf = &buf[..];
-        let n = buf.get_u32() as usize;
-
-        let mut msg = vec![0; n];
-        r.read_exact(&mut msg)?;
-        let decoded = String::from_utf8_lossy(&msg);
-        Ok(decoded.to_string())
     }
 
     #[test]
@@ -279,12 +256,48 @@ pub(self) mod codec {
         let decoded_op = ServerOp::decode(&mut d.as_slice())?;
         assert_eq!(decoded_op, op);
 
-        let op = ServerOp::Read;
+        let pattern = "POSITIONS: reading from stdin".to_string();
+        let op = ServerOp::Read(pattern);
         let d = op.encode();
         let decoded_op = ServerOp::decode(&mut d.as_slice())?;
         assert_eq!(decoded_op, op);
 
         Ok(())
+    }
+
+    fn encode<B: BufMut>(mut buf: B, msg: &str) {
+        buf.put_u32(msg.len() as u32);
+        buf.put(msg.as_bytes());
+    }
+
+    fn decode<R: Read>(r: &mut R) -> Result<Vec<u8>> {
+        let mut msg = vec![0_u8; 4];
+        r.read_exact(&mut msg)?;
+        let mut buf = &msg[..];
+        let n = buf.get_u32() as usize;
+        let mut msg = vec![0_u8; n];
+        r.read_exact(&mut msg)?;
+        Ok(msg)
+    }
+
+    pub fn send_msg(stream: &mut UnixStream, msg: &[u8]) -> Result<()> {
+        stream.write_all(msg)?;
+        stream.flush()?;
+        Ok(())
+    }
+
+    pub fn send_msg_encode(stream: &mut UnixStream, msg: &str) -> Result<()> {
+        let mut buf = vec![];
+
+        encode(&mut buf, msg);
+        send_msg(stream, &buf)?;
+
+        Ok(())
+    }
+
+    pub fn recv_msg_decode(stream: &mut UnixStream) -> Result<String> {
+        let msg = String::from_utf8_lossy(&decode(stream)?).to_string();
+        Ok(msg)
     }
 }
 // codec:1 ends here
@@ -347,45 +360,41 @@ mod server {
             server.wait_for_client()?;
             let client_stream = server.stream();
             info!("read instruction from client");
-            loop {
-                let op = ServerOp::decode(client_stream)?;
-                match op {
-                    ServerOp::Input(msg) => {
-                        server_stream.write_all(msg.as_bytes())?;
-                        server_stream.flush()?;
-                    }
-                    ServerOp::Read => {
-                        // 读一行, 写一行
+            let op = ServerOp::decode(client_stream)?;
+            match op {
+                // Write `msg` into server stream
+                ServerOp::Input(msg) => {
+                    info!("got input from client");
+                    codec::send_msg(&mut server_stream, msg.as_bytes())?;
+                    log_dbg!();
+                }
+                // Read lines from server_stream until found `pattern`
+                ServerOp::Read(pattern) => {
+                    info!("client asks for output");
+                    // collect text line by line until we found the `pattern`
+                    let mut txt = String::new();
+                    while let Some(line) = lines.next() {
                         log_dbg!();
-                        if let Some(line) = lines.next() {
-                            log_dbg!();
-                            writeln!(client_stream, "{}", dbg!(line?))?;
-                            log_dbg!();
-                            client_stream.flush()?;
+                        let line = line?;
+                        writeln!(&mut txt, "{}", line)?;
+                        if dbg!(line).contains(&pattern) {
+                            break;
                         }
                     }
-                    ServerOp::Stop => {
-                        break;
-                    }
-                    _ => {
-                        todo!();
-                    }
+                    log_dbg!();
+                    // send colelcted text to client
+                    codec::send_msg_encode(client_stream, &txt)?;
+                }
+                ServerOp::Stop => {
+                    log_dbg!();
+                    break;
+                }
+                _ => {
+                    todo!();
                 }
             }
-            break;
+            log_dbg!();
         }
-        // loop {
-        //     // 2. 准备接收server端的输出
-        //     log_dbg!();
-        //     loop {
-        //         log_dbg!();
-        //         // 先确定client准备好接收数据
-        //         if let Ok(Some(err)) = client_stream.take_error() {
-        //             dbg!(err);
-        //             break;
-        //         }
-        //     }
-        // }
 
         Ok(())
     }
