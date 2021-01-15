@@ -5,10 +5,6 @@ use std::os::unix::net::{UnixStream, UnixListener};
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
-// [[file:../vasp-server.note::*constants][constants:1]]
-const SOCKET_FILE: &str = "VASP.sock";
-// constants:1 ends here
-
 // [[file:../vasp-server.note::*base][base:1]]
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 
@@ -22,8 +18,6 @@ pub(crate) struct Task {
     stdout: Option<ChildStdout>,
     stdin: Option<ChildStdin>,
     stderr: Option<ChildStderr>,
-
-    socket_file: Option<server::SocketFile>,
 }
 
 impl Task {
@@ -45,7 +39,6 @@ impl Task {
             stdin,
             stdout,
             stderr,
-            socket_file: None,
         })
     }
 }
@@ -186,6 +179,7 @@ mod client {
     use super::*;
     use structopt::*;
 
+    /// Client of Unix domain socket
     pub struct Client {
         stream: UnixStream,
     }
@@ -238,24 +232,26 @@ mod server {
     use super::*;
 
     #[derive(Debug)]
-    pub struct SocketFile {
-        path: PathBuf,
+    pub struct SocketServer {
+        socket_file: PathBuf,
         listener: UnixListener,
         stream: Option<UnixStream>,
     }
 
-    impl SocketFile {
+    impl SocketServer {
         // Create a new VASP server. Return error if the server already started.
-        fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
-            let path = path.as_ref();
-            if path.exists() {
-                bail!("VASP server already started!");
+        pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
+            let socket_file = path.as_ref().to_owned();
+            if socket_file.exists() {
+                bail!("Socket server already started: {:?}!", socket_file);
             }
 
-            let listener = UnixListener::bind(&path).with_context(|| format!("bind to socket file: {:?}", &path))?;
-            Ok(SocketFile {
+            let listener = UnixListener::bind(&socket_file).context("bind socket")?;
+            info!("serve socket {:?}", socket_file);
+
+            Ok(SocketServer {
                 listener,
-                path: path.to_owned(),
+                socket_file,
                 stream: None,
             })
         }
@@ -271,13 +267,71 @@ mod server {
         fn stream(&mut self) -> &mut UnixStream {
             self.stream.as_mut().expect("unix stream not ready")
         }
+
+        fn handle_clients(&mut self, mut server_stream: UnixStream) -> Result<()> {
+            use codec::ServerOp;
+
+            let mut lines = BufReader::new(server_stream.try_clone()?).lines();
+            loop {
+                // 1. 等待client发送指令
+                self.wait_for_client()?;
+                let client_stream = self.stream();
+                while let Ok(op) = ServerOp::decode(client_stream) {
+                    match op {
+                        // Write `msg` into server stream
+                        ServerOp::Input(msg) => {
+                            info!("got input from client");
+                            codec::send_msg(&mut server_stream, msg.as_bytes())?;
+                        }
+                        // Read lines from server_stream until found `pattern`
+                        ServerOp::Output(pattern) => {
+                            info!("client asks for output");
+                            // collect text line by line until we found the `pattern`
+                            let mut txt = String::new();
+                            while let Some(line) = lines.next() {
+                                let line = line?;
+                                writeln!(&mut txt, "{}", line)?;
+                                if line.contains(&pattern) {
+                                    break;
+                                }
+                            }
+                            // send colelcted text to client
+                            codec::send_msg_encode(client_stream, &txt)?;
+                        }
+                        ServerOp::Stop => {
+                            break;
+                        }
+                        _ => {
+                            todo!();
+                        }
+                    }
+                }
+            }
+
+            Ok(())
+        }
+
+        /// Run the `script_file` and serve the client interactions with it
+        pub fn run_and_serve(&mut self, script_file: &Path) -> Result<()> {
+            // make a persistent unix stream for a joint handling of child
+            // process's stdio
+            let (socket1, mut socket2) = UnixStream::pair()?;
+
+            let mut child = server::start_cmd(script_file, socket1)?;
+            self.handle_clients(socket2)?;
+
+            // kill child process
+            child.kill()?;
+
+            Ok(())
+        }
     }
 
-    impl Drop for SocketFile {
+    impl Drop for SocketServer {
         // clean upunix socket file
         fn drop(&mut self) {
-            if self.path.exists() {
-                let _ = std::fs::remove_file(&self.path);
+            if self.socket_file.exists() {
+                let _ = std::fs::remove_file(&self.socket_file);
             }
         }
     }
@@ -306,53 +360,6 @@ mod server {
 
         Ok(child)
     }
-
-    // 以socket_file启动server, 将stream里的信息依样处理给client stream
-    pub fn serve_socket(mut server_stream: UnixStream, socket_file: &Path) -> Result<()> {
-        use codec::ServerOp;
-
-        info!("serve socket {:?}", socket_file);
-
-        let mut lines = BufReader::new(server_stream.try_clone()?).lines();
-        let mut server = SocketFile::create(socket_file)?;
-        loop {
-            // 1. 等待client发送指令
-            server.wait_for_client()?;
-            let client_stream = server.stream();
-            while let Ok(op) = ServerOp::decode(client_stream) {
-                match op {
-                    // Write `msg` into server stream
-                    ServerOp::Input(msg) => {
-                        info!("got input from client");
-                        codec::send_msg(&mut server_stream, msg.as_bytes())?;
-                    }
-                    // Read lines from server_stream until found `pattern`
-                    ServerOp::Output(pattern) => {
-                        info!("client asks for output");
-                        // collect text line by line until we found the `pattern`
-                        let mut txt = String::new();
-                        while let Some(line) = lines.next() {
-                            let line = line?;
-                            writeln!(&mut txt, "{}", line)?;
-                            if line.contains(&pattern) {
-                                break;
-                            }
-                        }
-                        // send colelcted text to client
-                        codec::send_msg_encode(client_stream, &txt)?;
-                    }
-                    ServerOp::Stop => {
-                        break;
-                    }
-                    _ => {
-                        todo!();
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
 }
 // final version:1 ends here
 
@@ -361,44 +368,42 @@ mod cli {
     use super::*;
     use structopt::*;
 
-    /// VASP calculations server
+    /// A program runner provides long live interaction service over unix
+    /// domain socket.
     #[derive(Debug, StructOpt)]
     struct ServerCli {
         #[structopt(flatten)]
         verbose: gut::cli::Verbosity,
 
-        /// Path to script running VASP
+        /// Path to the script to run
         #[structopt(short = "x")]
         script_file: PathBuf,
+
+        /// Path to the socket file to bind
+        #[structopt(short = "u")]
+        socket_file: PathBuf,
+    }
+
+    /// A client of a unix domain socket server for interacting with the program
+    /// run in background
+    #[derive(Debug, StructOpt)]
+    struct ClientCli {
+        #[structopt(flatten)]
+        verbose: gut::cli::Verbosity,
+
+        /// Path to the socket file to connect
+        #[structopt(short = "u")]
+        socket_file: PathBuf,
     }
 
     pub fn server_enter_main() -> Result<()> {
         let args = ServerCli::from_args();
         args.verbose.setup_logger();
 
-        let socket_file: &Path = SOCKET_FILE.as_ref();
-        assert!(!socket_file.exists(), "daemon server already started!");
-
-        // 建新一套通信通道, 将子进程的stdio都导入其中
-        let (socket1, mut socket2) = UnixStream::pair()?;
-
-        let mut child = server::start_cmd(&args.script_file, socket1)?;
-        server::serve_socket(socket2, socket_file)?;
-
-        child.wait()?;
+        let mut server = server::SocketServer::create(&args.socket_file)?;
+        server.run_and_serve(&args.script_file)?;
 
         Ok(())
-    }
-
-    /// Client for VASP server
-    #[derive(Debug, StructOpt)]
-    struct ClientCli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-
-        /// Path to script running VASP
-        #[structopt(short = "u")]
-        socket_file: PathBuf,
     }
 
     pub fn client_enter_main() -> Result<()> {
