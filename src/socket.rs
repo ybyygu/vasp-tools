@@ -217,6 +217,14 @@ mod client {
             Ok(())
         }
 
+        pub fn try_stop(&mut self) -> Result<()> {
+            self.write_input("")?;
+            let op = codec::ServerOp::Stop;
+            self.send_op(op)?;
+
+            Ok(())
+        }
+
         fn send_op(&mut self, op: codec::ServerOp) -> Result<()> {
             self.stream.write_all(&op.encode())?;
             self.stream.flush()?;
@@ -299,7 +307,8 @@ mod server {
                             codec::send_msg_encode(client_stream, &txt)?;
                         }
                         ServerOp::Stop => {
-                            break;
+                            info!("client requests to stop server");
+                            return Ok(());
                         }
                         _ => {
                             todo!();
@@ -311,17 +320,32 @@ mod server {
             Ok(())
         }
 
+        // kill child process
+        fn final_cleanup(&self, mut child: Child) -> Result<()> {
+            use std::time::Duration;
+
+            // wait one second
+            std::thread::sleep(Duration::from_secs(1));
+            if let Ok(Some(x)) = child.try_wait() {
+                info!("child process exited gracefully.");
+            } else {
+                eprintln!("force to kill child process: {}", child.id());
+                child.kill()?;
+            }
+
+            Ok(())
+        }
+
         /// Run the `script_file` and serve the client interactions with it
         pub fn run_and_serve(&mut self, script_file: &Path) -> Result<()> {
             // make a persistent unix stream for a joint handling of child
             // process's stdio
             let (socket1, mut socket2) = UnixStream::pair()?;
 
-            let mut child = server::start_cmd(script_file, socket1)?;
+            let mut child = run_script(script_file, socket1)?;
             self.handle_clients(socket2)?;
 
-            // kill child process
-            child.kill()?;
+            self.final_cleanup(child)?;
 
             Ok(())
         }
@@ -336,12 +360,12 @@ mod server {
         }
     }
 
-    // 启动script进程, 同时将stdin, stdout, stderr都导向stream
-    pub fn start_cmd(script: &Path, stream: UnixStream) -> Result<Child> {
-        info!("run script: {:?}", script);
-
+    /// Run `script` in child process, and redirect stdin, stdout, stderr to
+    /// `stream`
+    fn run_script(script: &Path, stream: UnixStream) -> Result<Child> {
         use std::os::unix::io::{AsRawFd, FromRawFd};
 
+        info!("run script: {:?}", script);
         let mut i_stream = stream.try_clone()?;
         let mut o_stream = stream.try_clone()?;
         let mut e_stream = stream.try_clone()?;
@@ -380,7 +404,7 @@ mod cli {
         script_file: PathBuf,
 
         /// Path to the socket file to bind
-        #[structopt(short = "u")]
+        #[structopt(short = "u", default_value = "vasp.sock")]
         socket_file: PathBuf,
     }
 
@@ -392,8 +416,12 @@ mod cli {
         verbose: gut::cli::Verbosity,
 
         /// Path to the socket file to connect
-        #[structopt(short = "u")]
+        #[structopt(short = "u", default_value = "vasp.sock")]
         socket_file: PathBuf,
+
+        /// Stop VASP server
+        #[structopt(short = "q")]
+        stop: bool,
     }
 
     pub fn server_enter_main() -> Result<()> {
@@ -412,9 +440,19 @@ mod cli {
 
         let mut client = client::Client::connect(&args.socket_file)?;
 
-        client.write_input("xx\n")?;
-        let s = client.read_expect("POSITIONS: reading from stdin")?;
-        dbg!(s);
+        if args.stop {
+            crate::vasp::write_stopcar()?;
+            client.try_stop()?;
+        } else {
+            client.write_input("xx\n")?;
+            let s = client.read_expect("POSITIONS: reading from stdin")?;
+            let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
+
+            let mut mp = gosh::model::ModelProperties::default();
+            mp.set_energy(energy);
+            mp.set_forces(forces);
+            println!("{}", mp);
+        }
 
         Ok(())
     }

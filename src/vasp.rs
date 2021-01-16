@@ -221,6 +221,7 @@ pub(crate) mod stdout {
         )
     }
 
+    /// Parse energy and forces from stdout of VASP interactive calculation
     pub fn parse_energy_and_forces(s: &str) -> Result<(f64, Vec<[f64; 3]>)> {
         let (_, values) = read_energy_and_forces(s).unwrap();
         Ok(values)
