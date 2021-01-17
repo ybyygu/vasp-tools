@@ -135,7 +135,7 @@ mod cmd {
             let run_file = self.prepare_compute_env()?;
             // write POSCAR
             // FIXME: looks dirty
-            gut::fs::write_to_file(run_file.with_file_name("POSCAR"), text)?;
+            gut::fs::write_to_file(run_file.with_file_name("POSCAR"), dbg!(text))?;
 
             let tpl_dir = self
                 .tpl_file
@@ -221,8 +221,9 @@ impl ChemicalModel for VaspServer {
     fn compute(&mut self, mol: &Molecule) -> Result<ModelProperties> {
         let first_run = !self.is_server_started();
         if first_run {
+            info!("first time run");
             let text = self.render_input(mol)?;
-            self.submit_cmd(&text)?;
+            self.submit_cmd(dbg!(&text))?;
         }
         assert!(self.is_server_started());
 
@@ -234,10 +235,49 @@ impl ChemicalModel for VaspServer {
 }
 // pub/chemical model:1 ends here
 
+// [[file:../vasp-server.note::*pub/cli][pub/cli:1]]
+mod cli {
+    use super::*;
+    use structopt::*;
+
+    /// A program runner provides long live interaction service over unix
+    /// domain socket.
+    #[derive(Debug, StructOpt)]
+    struct Cli {
+        #[structopt(flatten)]
+        verbose: gut::cli::Verbosity,
+
+        /// Path to the directory of BlackBoxModel (BBM) template
+        #[structopt(short = "t")]
+        bbm_dir: PathBuf,
+
+        /// Path to a file containing molecules
+        mols: PathBuf,
+    }
+
+    pub fn enter_main() -> Result<()> {
+        let args = Cli::from_args();
+        args.verbose.setup_logger();
+
+        let mols = gchemol::io::read_all(&args.mols)?;
+        dbg!(mols.len());
+
+        let mut vasp = VaspServer::from_dir(&args.bbm_dir)?;
+        for mol in mols {
+            let mp = vasp.compute(&mol)?;
+            dbg!(mp.get_energy());
+        }
+        Ok(())
+    }
+}
+pub use cli::enter_main;
+// pub/cli:1 ends here
+
 // [[file:../vasp-server.note::*test][test:1]]
 #[test]
 fn test_bbm_vasp_server() -> Result<()> {
     gut::cli::setup_logger_for_test();
+    
     let d = "./tests/files/live-vasp";
     let mut vasp = VaspServer::from_dir(d)?;
     let mol = Molecule::from_file("./tests/files/live-vasp/POSCAR")?;

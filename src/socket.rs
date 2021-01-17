@@ -444,7 +444,10 @@ mod cli {
             crate::vasp::write_stopcar()?;
             client.try_stop()?;
         } else {
-            client.write_input("xx\n")?;
+            // FIXME: this is hacky
+            // let input = crate::vasp::get_scaled_positions()?;
+            client.write_input("xx")?;
+
             let s = client.read_expect("POSITIONS: reading from stdin")?;
             let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
 

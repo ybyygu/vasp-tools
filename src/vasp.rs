@@ -140,6 +140,45 @@ fn test_update_incar() -> Result<()> {
 }
 // update INCAR:1 ends here
 
+// [[file:../vasp-server.note::*poscar][poscar:1]]
+// read scaled positions from POSCAR
+fn get_scaled_positions_from_poscar(path: &Path) -> Result<String> {
+    let s = gut::fs::read_file(path)?;
+
+    let lines: Vec<_> = s
+        .lines()
+        .skip_while(|line| !line.to_uppercase().starts_with("DIRECT"))
+        .skip(1)
+        .take_while(|line| !line.trim().is_empty())
+        .collect();
+    let mut positions = lines.join("\n");
+    // final line separator
+    positions += "\n";
+    Ok(positions)
+}
+
+#[test]
+fn test_poscar_positions() -> Result<()> {
+    let poscar = "./tests/files/live-vasp/POSCAR";
+
+    let s = get_scaled_positions_from_poscar(poscar.as_ref())?;
+    assert_eq!(s.lines().count(), 25);
+
+    Ok(())
+}
+
+// pub fn get_scaled_positions() -> Result<String> {
+//     let poscar: &Path = "POSCAR".as_ref();
+//     let s = if poscar.exists() {
+//         String::new()
+//     } else {
+//         get_scaled_positions_from_poscar(poscar)?
+//     };
+
+//     Ok(s)
+// }
+// poscar:1 ends here
+
 // [[file:../vasp-server.note::*stopcar][stopcar:1]]
 pub(crate) fn write_stopcar() -> Result<()> {
     gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;

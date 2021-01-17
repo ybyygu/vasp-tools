@@ -101,5 +101,6 @@ pub fn daemonize() -> Result<PidFile> {
 pub use crate::task::*;
 
 // FIXME: remove
+pub use crate::server::*;
 pub use crate::socket::*;
 // pub:1 ends here

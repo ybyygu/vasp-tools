@@ -82,26 +82,27 @@ use gosh::model::ModelProperties;
 
 impl Task {
     pub fn compute_mol(&mut self, mol: &Molecule) -> Result<ModelProperties> {
+        log_dbg!();
         let stdout = self.stdout.as_mut().unwrap();
         let mut text = String::new();
         let mut lines = stdout.lines();
-        loop {
-            // if let Some(exit_code) = self.child.try_wait().context("wait child process")? {
-            //     info!("child process exited with code {}", exit_code);
-            //     break;
-            // }
-            if let Some(line) = lines.next() {
-                let line = line?;
-                writeln!(&mut text, "{}", line)?;
-                if line == "POSITIONS: reading from stdin" {
-                    let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&text)?;
-                    let mut mp = ModelProperties::default();
-                    mp.set_energy(energy);
-                    mp.set_forces(forces);
-                    return Ok(mp);
-                }
+        while let Some(line) = lines.next() {
+            let line = line?;
+            writeln!(&mut text, "{}", line)?;
+            if line == "POSITIONS: reading from stdin" {
+                log_dbg!();
+                let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&text)?;
+                let mut mp = ModelProperties::default();
+                mp.set_energy(energy);
+                mp.set_forces(forces);
+                return Ok(mp);
+            }
+            if let Some(exit_code) = self.child.as_mut().unwrap().try_wait().context("wait child process")? {
+                info!("child process exited with code {}", exit_code);
+                break;
             }
         }
+        bail!("fail to get results");
     }
 }
 // compute & output:1 ends here
