@@ -135,7 +135,7 @@ mod cmd {
             let run_file = self.prepare_compute_env()?;
             // write POSCAR
             // FIXME: looks dirty
-            gut::fs::write_to_file(run_file.with_file_name("POSCAR"), dbg!(text))?;
+            gut::fs::write_to_file(run_file.with_file_name("POSCAR"), text)?;
 
             let tpl_dir = self
                 .tpl_file

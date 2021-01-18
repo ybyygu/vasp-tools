@@ -11,10 +11,6 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
-// [[file:../vasp-server.note::*constants][constants:1]]
-const SOCKET_FILE: &str = "VASP.socket";
-// constants:1 ends here
-
 // [[file:../vasp-server.note::*base][base:1]]
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
@@ -103,7 +99,7 @@ impl Task {
         let mut lines = mol
             .get_scaled_positions()
             .expect("lattice")
-            .map(|[x, y, z]| format!("{:19.16}{:19.16}{:19.16}\n", x, y, z));
+            .map(|[x, y, z]| format!("{:19.16} {:19.16} {:19.16}\n", x, y, z));
 
         for line in lines {
             self.stream0.write_all(line.as_bytes())?;
