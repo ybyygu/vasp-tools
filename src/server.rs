@@ -6,11 +6,11 @@ use gosh::model::ModelProperties;
 use gut::prelude::*;
 use tempfile::TempDir;
 
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
 // [[file:../vasp-server.note::*base][base:1]]
-#[derive(Debug)]
 pub struct VaspServer {
     /// Set the run script file for calculation.
     run_file: PathBuf,
@@ -123,7 +123,7 @@ mod env {
 // [[file:../vasp-server.note::*cmd][cmd:1]]
 mod cmd {
     use super::*;
-    use std::process::{Command, Stdio};
+    use std::process::{Child, Command, Stdio};
 
     impl VaspServer {
         pub(super) fn is_server_started(&self) -> bool {
@@ -149,15 +149,13 @@ mod cmd {
             let cmdline = format!("{}", run_file.display());
             debug!("submit cmdline: {}", cmdline);
             let tdir = run_file.parent().unwrap();
-            let mut child = Command::new(&cmdline)
-                .current_dir(tdir)
-                .env("BBM_TPL_DIR", &tpl_dir)
-                .env("BBM_JOB_DIR", &cdir)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .with_context(|| format!("run script: {:?}", &cmdline))?;
 
+            // make a persistent unix stream for a joint handling of child
+            // process's stdio
+            let (socket1, socket2) = UnixStream::pair()?;
+            let child = run_script(&run_file, socket1, tdir, tpl_dir, &cdir)?;
+
+            // self.task = crate::task::Task::new(child, socket2).into();
             self.task = crate::task::Task::new(child).into();
 
             Ok(())
@@ -170,6 +168,41 @@ mod cmd {
 
             Ok(txt)
         }
+    }
+
+    /// Run `script` in child process, and redirect stdin, stdout, stderr to
+    /// `stream`
+    fn run_script(script: &Path, stream: UnixStream, wrk_dir: &Path, tpl_dir: &Path, job_dir: &Path) -> Result<Child> {
+        // use std::os::unix::io::{AsRawFd, FromRawFd};
+
+        info!("run script: {:?}", script);
+        // let mut i_stream = stream.try_clone()?;
+        // let mut o_stream = stream.try_clone()?;
+        // let mut e_stream = stream.try_clone()?;
+
+        // make unix stream as file descriptors for process stdio
+        // let (i_cmd, o_cmd, e_cmd) = unsafe {
+        //     use std::process::Stdio;
+        //     (
+        //         Stdio::from_raw_fd(i_stream.as_raw_fd()),
+        //         Stdio::from_raw_fd(o_stream.as_raw_fd()),
+        //         Stdio::from_raw_fd(e_stream.as_raw_fd()),
+        //     )
+        // };
+
+        let child = Command::new(script)
+            .current_dir(wrk_dir)
+            .env("BBM_TPL_DIR", tpl_dir)
+            .env("BBM_JOB_DIR", job_dir)
+            // .stdin(i_cmd)
+            .stdin(Stdio::piped())
+            // .stdout(o_cmd)
+            .stdout(Stdio::piped())
+            // .stderr(e_cmd)
+            .spawn()
+            .with_context(|| format!("run script: {:?}", &script))?;
+
+        Ok(child)
     }
 }
 // cmd:1 ends here
@@ -223,7 +256,7 @@ impl ChemicalModel for VaspServer {
         if first_run {
             info!("first time run");
             let text = self.render_input(mol)?;
-            self.submit_cmd(dbg!(&text))?;
+            self.submit_cmd(&text)?;
         }
         assert!(self.is_server_started());
 
@@ -259,11 +292,10 @@ mod cli {
         let args = Cli::from_args();
         args.verbose.setup_logger();
 
-        let mols = gchemol::io::read_all(&args.mols)?;
-        dbg!(mols.len());
-
         let mut vasp = VaspServer::from_dir(&args.bbm_dir)?;
-        for mol in mols {
+        let mols = gchemol::io::read(&args.mols)?;
+        for (i, mol) in mols.enumerate() {
+            info!("calculate mol {}", i);
             let mp = vasp.compute(&mol)?;
             dbg!(mp.get_energy());
         }

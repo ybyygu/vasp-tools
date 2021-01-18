@@ -16,6 +16,8 @@ tempfile = "3.0"
 envfile = "0.2"
 gut = { version = "0.1.4", package = "gchemol-gut" }
 text_parser = { version = "0.2", package = "gchemol-parser" }
+subprocess = "0.2"
+rexpect = "0.4"
 
 [dev-dependencies]
 # cargo:1 ends here

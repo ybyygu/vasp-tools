@@ -5,6 +5,8 @@ use gchemol::prelude::*;
 use gchemol::Molecule;
 use gosh::gchemol;
 
+use rexpect::reader::{NBReader, ReadUntil};
+
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 // imports:1 ends here
@@ -20,22 +22,29 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::LineWriter;
 
-#[derive(Debug)]
 pub(crate) struct Task {
-    child: Option<Child>,
-    stdin: Option<ChildStdin>,
-    stdout: Option<BufReader<ChildStdout>>,
+    child: Child,
+    // stdin
+    // stream0: UnixStream,
+    stream0: ChildStdin,
+    // stdou
+    // stream1: std::io::Lines<BufReader<UnixStream>>,
+    stream1: NBReader,
 }
 
 impl Task {
-    pub fn new(mut child: Child) -> Self {
-        let stdout = child.stdout.take().and_then(|x| BufReader::new(x).into());
-        let stdin = child.stdin.take();
-
+    pub fn new(
+        mut child: Child,
+        // stream: UnixStream
+    ) -> Self {
+        // let stream1 = stream.try_clone().unwrap();
+        let stream0 = child.stdin.take().unwrap();
+        let stream1 = child.stdout.take().unwrap();
         Self {
-            stdin,
-            stdout,
-            child: child.into(),
+            stream0,
+            // stream1: BufReader::new(stream1).lines(),
+            stream1: NBReader::new(stream1, None),
+            child,
         }
     }
 }
@@ -51,26 +60,55 @@ impl Drop for Task {
 }
 // stop:1 ends here
 
+// [[file:../vasp-server.note::*read][read:1]]
+use std::sync::{Arc, Mutex};
+
+/// Pipe streams are blocking, we need separate threads to monitor them without blocking the primary thread.
+fn child_stream_to_vec<R>(mut stream: R) -> Arc<Mutex<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    let out = Arc::new(Mutex::new(Vec::new()));
+    let vec = out.clone();
+    std::thread::Builder::new()
+        .name("child_stream_to_vec".into())
+        .spawn(move || loop {
+            let mut buf = [0];
+            match stream.read(&mut buf) {
+                Err(err) => {
+                    println!("{}] Error reading from stream: {}", line!(), err);
+                    break;
+                }
+                Ok(got) => {
+                    if got == 0 {
+                        break;
+                    } else if got == 1 {
+                        vec.lock().expect("!lock").push(buf[0])
+                    } else {
+                        println!("{}] Unexpected number of bytes: {}", line!(), got);
+                        break;
+                    }
+                }
+            }
+        })
+        .expect("!thread");
+    out
+}
+// read:1 ends here
+
 // [[file:../vasp-server.note::*input][input:1]]
 impl Task {
     /// write scaled positions to VASP stdin
     pub fn input_positions(&mut self, mol: &Molecule) -> Result<()> {
-        let lines: String = mol
+        let mut lines = mol
             .get_scaled_positions()
             .expect("lattice")
-            .map(|[x, y, z]| format!("{:19.16}{:19.16}{:19.16}\n", x, y, z))
-            .collect();
+            .map(|[x, y, z]| format!("{:19.16}{:19.16}{:19.16}\n", x, y, z));
 
-        self.input(&lines)?;
-
-        Ok(())
-    }
-
-    /// write lines into task's stdin
-    pub fn input(&mut self, lines: &str) -> Result<()> {
-        let mut writer = std::io::BufWriter::new(self.stdin.as_mut().unwrap());
-        writer.write_all(lines.as_bytes())?;
-        writer.flush()?;
+        for line in lines {
+            self.stream0.write_all(line.as_bytes())?;
+        }
+        self.stream0.flush()?;
 
         Ok(())
     }
@@ -83,26 +121,17 @@ use gosh::model::ModelProperties;
 impl Task {
     pub fn compute_mol(&mut self, mol: &Molecule) -> Result<ModelProperties> {
         log_dbg!();
-        let stdout = self.stdout.as_mut().unwrap();
-        let mut text = String::new();
-        let mut lines = stdout.lines();
-        while let Some(line) = lines.next() {
-            let line = line?;
-            writeln!(&mut text, "{}", line)?;
-            if line == "POSITIONS: reading from stdin" {
-                log_dbg!();
-                let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&text)?;
-                let mut mp = ModelProperties::default();
-                mp.set_energy(energy);
-                mp.set_forces(forces);
-                return Ok(mp);
-            }
-            if let Some(exit_code) = self.child.as_mut().unwrap().try_wait().context("wait child process")? {
-                info!("child process exited with code {}", exit_code);
-                break;
-            }
-        }
-        bail!("fail to get results");
+
+        let (txt, _) = self
+            .stream1
+            .read_until(&ReadUntil::String("POSITIONS: reading from stdin\n".to_string()))
+            .unwrap();
+
+        let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&txt)?;
+        let mut mp = ModelProperties::default();
+        mp.set_energy(energy);
+        mp.set_forces(forces);
+        return Ok(mp);
     }
 }
 // compute & output:1 ends here
