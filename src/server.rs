@@ -150,12 +150,7 @@ mod cmd {
             debug!("submit cmdline: {}", cmdline);
             let tdir = run_file.parent().unwrap();
 
-            // make a persistent unix stream for a joint handling of child
-            // process's stdio
-            let (socket1, socket2) = UnixStream::pair()?;
-            let child = run_script(&run_file, socket1, tdir, tpl_dir, &cdir)?;
-
-            // self.task = crate::task::Task::new(child, socket2).into();
+            let child = run_script(&run_file, tdir, tpl_dir, &cdir)?;
             self.task = crate::task::Task::new(child).into();
 
             Ok(())
@@ -172,33 +167,15 @@ mod cmd {
 
     /// Run `script` in child process, and redirect stdin, stdout, stderr to
     /// `stream`
-    fn run_script(script: &Path, stream: UnixStream, wrk_dir: &Path, tpl_dir: &Path, job_dir: &Path) -> Result<Child> {
-        // use std::os::unix::io::{AsRawFd, FromRawFd};
-
+    fn run_script(script: &Path, wrk_dir: &Path, tpl_dir: &Path, job_dir: &Path) -> Result<Child> {
         info!("run script: {:?}", script);
-        // let mut i_stream = stream.try_clone()?;
-        // let mut o_stream = stream.try_clone()?;
-        // let mut e_stream = stream.try_clone()?;
-
-        // make unix stream as file descriptors for process stdio
-        // let (i_cmd, o_cmd, e_cmd) = unsafe {
-        //     use std::process::Stdio;
-        //     (
-        //         Stdio::from_raw_fd(i_stream.as_raw_fd()),
-        //         Stdio::from_raw_fd(o_stream.as_raw_fd()),
-        //         Stdio::from_raw_fd(e_stream.as_raw_fd()),
-        //     )
-        // };
 
         let child = Command::new(script)
             .current_dir(wrk_dir)
             .env("BBM_TPL_DIR", tpl_dir)
             .env("BBM_JOB_DIR", job_dir)
-            // .stdin(i_cmd)
             .stdin(Stdio::piped())
-            // .stdout(o_cmd)
             .stdout(Stdio::piped())
-            // .stderr(e_cmd)
             .spawn()
             .with_context(|| format!("run script: {:?}", &script))?;
 
@@ -206,22 +183,6 @@ mod cmd {
     }
 }
 // cmd:1 ends here
-
-// [[file:../vasp-server.note::*interact][interact:1]]
-impl VaspServer {
-    fn interact(&mut self, mol: &Molecule, first_run: bool) -> Result<ModelProperties> {
-        info!("interact with server ...");
-        if !first_run {
-            info!("input positions");
-            self.task.as_mut().unwrap().input_positions(mol)?;
-        }
-        info!("get outputs ...");
-        let mp = self.task.as_mut().expect("vasp task").compute_mol(mol)?;
-
-        Ok(mp)
-    }
-}
-// interact:1 ends here
 
 // [[file:../vasp-server.note::*pub/methods][pub/methods:1]]
 impl VaspServer {
@@ -260,7 +221,7 @@ impl ChemicalModel for VaspServer {
         }
         assert!(self.is_server_started());
 
-        let mp = self.interact(mol, first_run)?;
+        let mp = self.task.as_mut().unwrap().interact(mol, self.ncalls)?;
         self.ncalls += 1;
 
         Ok(mp)
