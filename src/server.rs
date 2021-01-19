@@ -6,17 +6,19 @@ use gosh::model::ModelProperties;
 use gut::prelude::*;
 use tempfile::TempDir;
 
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
 // [[file:../vasp-server.note::*base][base:1]]
-pub struct VaspServer {
+pub struct BlackBoxModel {
     /// Set the run script file for calculation.
     run_file: PathBuf,
 
     /// Set the template file for rendering molecule.
     tpl_file: PathBuf,
+
+    /// The script for interaction with the main process
+    int_file: Option<PathBuf>,
 
     /// Set the root directory for scratch files.
     scr_dir: Option<PathBuf>,
@@ -53,7 +55,7 @@ mod env {
         )
     }
 
-    impl VaspServer {
+    impl BlackBoxModel {
         /// 生成临时目录, 生成执行脚本
         pub(super) fn prepare_compute_env(&mut self) -> Result<PathBuf> {
             use std::os::unix::fs::PermissionsExt;
@@ -87,9 +89,11 @@ mod env {
 
             let run_file = envfile.get("BBM_RUN_FILE").unwrap_or("submit.sh");
             let tpl_file = envfile.get("BBM_TPL_FILE").unwrap_or("input.hbs");
-            let mut bbm = VaspServer {
+            let int_file_opt = envfile.get("BBM_INT_FILE");
+            let mut bbm = BlackBoxModel {
                 run_file: dir.join(run_file),
                 tpl_file: dir.join(tpl_file),
+                int_file: int_file_opt.map(|f| dir.join(f)),
                 scr_dir: envfile.get("BBM_SCR_DIR").map(|x| x.into()),
                 job_dir: std::env::current_dir()?.into(),
                 temp_dir: None,
@@ -102,7 +106,7 @@ mod env {
         // Construct from environment variables
         // 2020-09-05: it is dangerous if we have multiple BBMs in the sample process
         // fn from_env() -> Self {
-        //     match envy::prefixed("BBM_").from_env::<VaspServer>() {
+        //     match envy::prefixed("BBM_").from_env::<BlackBoxModel>() {
         //         Ok(bbm) => bbm,
         //         Err(error) => panic!("{:?}", error),
         //     }
@@ -125,17 +129,15 @@ mod cmd {
     use super::*;
     use std::process::{Child, Command, Stdio};
 
-    impl VaspServer {
+    impl BlackBoxModel {
         pub(super) fn is_server_started(&self) -> bool {
             self.task.is_some()
         }
 
         /// Call run script with `text` as its stdin
-        pub(super) fn submit_cmd(&mut self, text: &str) -> Result<()> {
+        pub(super) fn submit_cmd(&mut self, text: &str) -> Result<String> {
+            // TODO: prepare interact.sh
             let run_file = self.prepare_compute_env()?;
-            // write POSCAR
-            // FIXME: looks dirty
-            gut::fs::write_to_file(run_file.with_file_name("POSCAR"), text)?;
 
             let tpl_dir = self
                 .tpl_file
@@ -150,25 +152,28 @@ mod cmd {
             debug!("submit cmdline: {}", cmdline);
             let tdir = run_file.parent().unwrap();
 
-            let child = run_script(&run_file, tdir, tpl_dir, &cdir)?;
-            self.task = crate::task::Task::new(child).into();
+            let interactive = self.int_file.is_some();
+            // write POSCAR for interactive VASP calculation
+            // FIXME: looks dirty
+            let out = if interactive {
+                info!("interactive mode enabled");
+                gut::fs::write_to_file(run_file.with_file_name("POSCAR"), text)?;
 
-            Ok(())
-        }
+                let child = run_script(&run_file, tdir, tpl_dir, &cdir)?;
+                self.task = crate::task::Task::new(child).into();
 
-        /// Render input using template
-        pub(super) fn render_input(&self, mol: &Molecule) -> Result<String> {
-            // render input text with external template file
-            let txt = mol.render_with(&self.tpl_file)?;
+                // return an empty string
+                String::new()
+            } else {
+                call_with_input(&run_file, text, tdir, tpl_dir, &cdir)?
+            };
 
-            Ok(txt)
+            Ok(out)
         }
     }
 
-    /// Run `script` in child process, and redirect stdin, stdout, stderr to
-    /// `stream`
     fn run_script(script: &Path, wrk_dir: &Path, tpl_dir: &Path, job_dir: &Path) -> Result<Child> {
-        info!("run script: {:?}", script);
+        debug!("run script: {:?}", script);
 
         let child = Command::new(script)
             .current_dir(wrk_dir)
@@ -177,18 +182,100 @@ mod cmd {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
-            .with_context(|| format!("run script: {:?}", &script))?;
+            .with_context(|| format!("Failed to run script: {:?}", &script))?;
 
         Ok(child)
+    }
+
+    /// Call external script and get its output (stdout)
+    fn call_with_input(script: &Path, input: &str, wrk_dir: &Path, tpl_dir: &Path, job_dir: &Path) -> Result<String> {
+        use std::io::Write;
+
+        let mut child = run_script(script, wrk_dir, tpl_dir, job_dir)?;
+        {
+            let stdin = child.stdin.as_mut().context("Failed to open stdin")?;
+            stdin.write_all(input.as_bytes()).context("Failed to write to stdin")?;
+        }
+
+        let output = child.wait_with_output().context("Failed to read stdout")?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 }
 // cmd:1 ends here
 
+// [[file:../vasp-server.note::*compute][compute:1]]
+impl BlackBoxModel {
+    fn compute_normal(&mut self, mol: &Molecule) -> Result<ModelProperties> {
+        // 1. render input text with the template
+        let txt = self.render_input(&mol)?;
+
+        // 2. call external engine
+        let output = self.submit_cmd(&txt)?;
+
+        // 3. collect model properties
+        let mp = output.parse().context("parse results")?;
+
+        Ok(mp)
+    }
+
+    fn compute_normal_bunch(&mut self, mols: &[Molecule]) -> Result<Vec<ModelProperties>> {
+        // 1. render input text with the template
+        let txt = self.render_input_bunch(mols)?;
+
+        // 2. call external engine
+        let output = self.submit_cmd(&txt)?;
+
+        // 3. collect model properties
+        let all = ModelProperties::parse_all(&output)?;
+
+        // one-to-one mapping
+        assert_eq!(mols.len(), all.len());
+
+        Ok(all)
+    }
+
+    // TODO: make it more general
+    fn compute_interactive(&mut self, mol: &Molecule) -> Result<ModelProperties> {
+        info!("Enter interactive vasp calculation mode ...");
+        let first_run = !self.is_server_started();
+        if first_run {
+            debug!("first time run");
+            let text = self.render_input(mol)?;
+            self.submit_cmd(&text)?;
+        }
+        assert!(self.is_server_started());
+
+        let mp = self.task.as_mut().unwrap().interact(mol, self.ncalls)?;
+
+        Ok(mp)
+    }
+}
+// compute:1 ends here
+
 // [[file:../vasp-server.note::*pub/methods][pub/methods:1]]
-impl VaspServer {
-    /// Construct VaspServer model under directory context.
+impl BlackBoxModel {
+    /// Render input using template
+    pub fn render_input(&self, mol: &Molecule) -> Result<String> {
+        // render input text with external template file
+        let txt = mol.render_with(&self.tpl_file)?;
+
+        Ok(txt)
+    }
+
+    /// Render input using template in bunch mode.
+    pub fn render_input_bunch(&self, mols: &[Molecule]) -> Result<String> {
+        let mut txt = String::new();
+        for mol in mols.iter() {
+            let part = self.render_input(&mol)?;
+            txt.push_str(&part);
+        }
+
+        Ok(txt)
+    }
+
+    /// Construct BlackBoxModel model under directory context.
     pub fn from_dir<P: AsRef<Path>>(dir: P) -> Result<Self> {
-        Self::from_dotenv(dir.as_ref()).context("Initialize VaspServer failure.")
+        Self::from_dotenv(dir.as_ref()).context("Initialize BlackBoxModel failure.")
     }
 
     /// keep scratch files for user inspection of failure.
@@ -211,20 +298,28 @@ impl VaspServer {
 // [[file:../vasp-server.note::*pub/chemical model][pub/chemical model:1]]
 use gosh::model::ChemicalModel;
 
-impl ChemicalModel for VaspServer {
+impl ChemicalModel for BlackBoxModel {
     fn compute(&mut self, mol: &Molecule) -> Result<ModelProperties> {
-        let first_run = !self.is_server_started();
-        if first_run {
-            info!("first time run");
-            let text = self.render_input(mol)?;
-            self.submit_cmd(&text)?;
-        }
-        assert!(self.is_server_started());
-
-        let mp = self.task.as_mut().unwrap().interact(mol, self.ncalls)?;
+        let mp = if self.int_file.is_some() {
+            self.compute_interactive(mol)?
+        } else {
+            self.compute_normal(mol)?
+        };
         self.ncalls += 1;
 
         Ok(mp)
+    }
+
+    fn compute_bunch(&mut self, mols: &[Molecule]) -> Result<Vec<ModelProperties>> {
+        let all = if self.int_file.is_some() {
+            error!("bunch calculation in interactive mode is not supported yet!");
+            unimplemented!()
+        } else {
+            self.compute_normal_bunch(mols)?
+        };
+
+        self.ncalls += 1;
+        Ok(all)
     }
 }
 // pub/chemical model:1 ends here
@@ -253,7 +348,7 @@ mod cli {
         let args = Cli::from_args();
         args.verbose.setup_logger();
 
-        let mut vasp = VaspServer::from_dir(&args.bbm_dir)?;
+        let mut vasp = BlackBoxModel::from_dir(&args.bbm_dir)?;
         let mols = gchemol::io::read(&args.mols)?;
         for (i, mol) in mols.enumerate() {
             info!("calculate mol {}", i);
@@ -272,7 +367,7 @@ fn test_bbm_vasp_server() -> Result<()> {
     gut::cli::setup_logger_for_test();
     
     let d = "./tests/files/live-vasp";
-    let mut vasp = VaspServer::from_dir(d)?;
+    let mut vasp = BlackBoxModel::from_dir(d)?;
     let mol = Molecule::from_file("./tests/files/live-vasp/POSCAR")?;
     let mp = vasp.compute(&mol)?;
     dbg!(mp);
