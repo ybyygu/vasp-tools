@@ -298,8 +298,11 @@ mod adhoc {
         Ok(d)
     }
 
-    fn get_vasp_main_process_all() -> Result<Vec<usize>> {
-        let p = cmd!("pgrep", "pmi_proxy").read()?;
+    fn get_vasp_main_process_all(pattern: &str) -> Result<Vec<usize>> {
+        let p = cmd!("pgrep", pattern).read()?;
+        if p.trim().is_empty() {
+            bail!("no command found matching {:?}!", pattern);
+        }
         let pids = p.lines().map(|l| l.parse().unwrap()).collect();
 
         Ok(pids)
@@ -320,9 +323,13 @@ mod adhoc {
     }
 
     /// 找到匹配指定进程的VASP主进程
-    pub fn find_vasp_main_process(ppid: usize) -> Result<usize> {
-        let p_all = get_vasp_main_process_all()?;
-        info!("found {} vasp main processes", p_all.len());
+    /// for intel mpi vasp
+    /// : res => pmi_proxy => 72 * vasp
+    /// the session leader is `res`
+    /// so we should control vasp by parent process id
+    pub fn find_vasp_main_process(ppid: usize, pattern: &str) -> Result<usize> {
+        let p_all = get_vasp_main_process_all(pattern)?;
+        info!("found {} vasp main processes using {:?}", p_all.len(), pattern);
 
         // it is slow
         let ctime_all: Vec<_> = p_all.iter().map(|&p| get_process_ctime(p).ok().unwrap()).collect();
@@ -354,30 +361,32 @@ mod cli {
         #[structopt(flatten)]
         verbose: gut::cli::Verbosity,
 
-        /// The parent process id of VASP
+        /// The process id of script calling VASP
         ppid: usize,
 
+        /// The control action. Possible values include "pause", "resume"
         #[structopt(long, short)]
         action: Option<String>,
+
+        /// Search partern for finding main vasp process. The default value is
+        /// for Intel MPI version of VASP.
+        #[structopt(long, short, default_value = "pmi_proxy")]
+        pattern: String,
     }
 
     pub fn enter_main() -> Result<()> {
         let args = Cli::from_args();
         args.verbose.setup_logger();
 
-        let vasp_pid = adhoc::find_vasp_main_process(args.ppid)?;
+        let vasp_pid = adhoc::find_vasp_main_process(args.ppid, &args.pattern)?;
         if let Some(action) = args.action {
             info!("{} process group {}", action, vasp_pid);
             match action.as_str() {
                 "pause" => {
-                    if let Err(err) = adhoc::pause_process_group(vasp_pid) {
-                        dbg!(err);
-                    }
+                    adhoc::pause_process_group(vasp_pid)?;
                 }
                 "resume" => {
-                    if let Err(err) = adhoc::resume_process_group(vasp_pid) {
-                        dbg!(err);
-                    }
+                    adhoc::resume_process_group(vasp_pid)?;
                 }
                 _ => {
                     todo!();
