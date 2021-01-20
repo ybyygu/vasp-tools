@@ -278,3 +278,115 @@ pub(crate) mod stdout {
     }
 }
 // stdout:1 ends here
+
+// [[file:../vasp-server.note::*process][process:1]]
+mod adhoc {
+    use super::*;
+    use duct::*;
+
+    fn get_process_ctime(pid: usize) -> Result<i64> {
+        let s = cmd!("ps", "-o", "lstart=", pid.to_string())
+            .env("LC_TIME", "C") // ensure plain time format
+            .read()?;
+
+        // convert unix timestamp
+        // date -d "Wed Jan 20 14:44:41 CST 2021" +%s --utc
+        let d = cmd!("date", "-d", &s, "+%s", "--utc").read()?.parse()?;
+        // let d = chrono::DateTime::parse_from_str(&s, "%c")?;
+        // dbg!(d);
+
+        Ok(d)
+    }
+
+    fn get_vasp_main_process_all() -> Result<Vec<usize>> {
+        let p = cmd!("pgrep", "pmi_proxy").read()?;
+        let pids = p.lines().map(|l| l.parse().unwrap()).collect();
+
+        Ok(pids)
+    }
+
+    pub fn pause_process_group(ppid: usize) -> Result<()> {
+        debug!("try to suspend process group {}", ppid);
+        let _ = cmd!("pkill", "-SIGSTOP", "-P", ppid.to_string()).read()?;
+
+        Ok(())
+    }
+
+    pub fn resume_process_group(ppid: usize) -> Result<()> {
+        debug!("try to resume process group {}", ppid);
+        let _ = cmd!("pkill", "-SIGCONT", "-P", ppid.to_string()).read()?;
+
+        Ok(())
+    }
+
+    /// 找到匹配指定进程的VASP主进程
+    pub fn find_vasp_main_process(ppid: usize) -> Result<usize> {
+        let p_all = get_vasp_main_process_all()?;
+        info!("found {} vasp main processes", p_all.len());
+
+        // it is slow
+        let ctime_all: Vec<_> = p_all.iter().map(|&p| get_process_ctime(p).ok().unwrap()).collect();
+        let ctime1 = get_process_ctime(ppid)?;
+
+        let tmp_abs_diffs = ctime_all
+            .iter()
+            .enumerate()
+            .map(|(i, x)| ((x - ctime1).abs(), i))
+            .sorted()
+            .collect_vec();
+
+        let i = tmp_abs_diffs[0].1;
+        let main_vasp_pid = p_all[i];
+
+        Ok(main_vasp_pid)
+    }
+}
+// process:1 ends here
+
+// [[file:../vasp-server.note::*pub/cli][pub/cli:1]]
+mod cli {
+    use super::*;
+    use structopt::*;
+
+    /// An adhoc helper program to control VASP mpi processes
+    #[derive(Debug, StructOpt)]
+    struct Cli {
+        #[structopt(flatten)]
+        verbose: gut::cli::Verbosity,
+
+        /// The parent process id of VASP
+        ppid: usize,
+
+        #[structopt(long, short)]
+        action: Option<String>,
+    }
+
+    pub fn enter_main() -> Result<()> {
+        let args = Cli::from_args();
+        args.verbose.setup_logger();
+
+        let vasp_pid = adhoc::find_vasp_main_process(args.ppid)?;
+        if let Some(action) = args.action {
+            info!("{} process group {}", action, vasp_pid);
+            match action.as_str() {
+                "pause" => {
+                    if let Err(err) = adhoc::pause_process_group(vasp_pid) {
+                        dbg!(err);
+                    }
+                }
+                "resume" => {
+                    if let Err(err) = adhoc::resume_process_group(vasp_pid) {
+                        dbg!(err);
+                    }
+                }
+                _ => {
+                    todo!();
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+pub use cli::enter_main;
+// pub/cli:1 ends here

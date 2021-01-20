@@ -1,7 +1,7 @@
-# [[file:vasp-server.note::*cargo][cargo:1]]
+# [[file:vasp-server.note::*cargo.toml][cargo.toml:1]]
 [package]
 name = "vasp-server"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2018"
 authors = ["Wenping Guo <ybyygu@gmail.com>"]
 
@@ -13,9 +13,13 @@ fs2 = "0.4"
 bytes = "1"
 structopt = "0.3"
 tempfile = "3.0"
+duct = "0.13"
+psutil = "3"
+heim = "0.1.0-rc.1"
 envfile = "0.2"
+chrono = "0.4"
 gut = { version = "0.1.4", package = "gchemol-gut" }
 text_parser = { version = "0.2", package = "gchemol-parser" }
 
 [dev-dependencies]
-# cargo:1 ends here
+# cargo.toml:1 ends here

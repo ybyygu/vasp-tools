@@ -103,4 +103,8 @@ pub use crate::task::*;
 // FIXME: remove
 pub use crate::server::*;
 pub use crate::socket::*;
+
+pub mod adhoc {
+    pub use crate::vasp::*;
+}
 // pub:1 ends here
