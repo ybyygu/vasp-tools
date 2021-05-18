@@ -2,7 +2,7 @@
 use gut::prelude::*;
 
 fn main() -> Result<()> {
-    vasp_server::client_enter_main()?;
+    vasp_tools::client_enter_main()?;
 
     Ok(())
 }
