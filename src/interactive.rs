@@ -53,6 +53,14 @@ impl Task {
 }
 // task:1 ends here
 
+// [[file:../vasp-tools.note::*drop][drop:1]]
+impl Drop for Task {
+    fn drop(&mut self) {
+        dbg!();
+    }
+}
+// drop:1 ends here
+
 // [[file:../vasp-tools.note::*test][test:1]]
 #[test]
 fn test_task() {

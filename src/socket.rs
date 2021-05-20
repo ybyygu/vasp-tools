@@ -1,57 +1,18 @@
-// [[file:../vasp-server.note::*imports][imports:1]]
+// [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 
 use std::os::unix::net::{UnixStream, UnixListener};
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
-// [[file:../vasp-server.note::*base][base:1]]
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
-
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::io::LineWriter;
-
-#[derive(Debug)]
-pub(crate) struct Task {
-    child: Child,
-    stdout: Option<ChildStdout>,
-    stdin: Option<ChildStdin>,
-    stderr: Option<ChildStderr>,
-}
-
-impl Task {
-    pub(crate) fn new<P: AsRef<Path>>(exe: P) -> Result<Self> {
-        let exe = exe.as_ref();
-        let mut child = Command::new(&exe)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| format!("run script: {:?}", exe))?;
-
-        let stdin = child.stdin.take();
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-
-        Ok(Self {
-            child,
-            stdin,
-            stdout,
-            stderr,
-        })
-    }
-}
-// base:1 ends here
-
-// [[file:../vasp-server.note::*codec][codec:1]]
-pub(self) mod codec {
+// [[file:../vasp-tools.note::*codec][codec:1]]
+mod codec {
     use super::*;
     use bytes::{Buf, BufMut, Bytes};
-    use std::io::Read;
+    use std::io::{Read, Write};
 
-    #[derive(Debug, Eq, PartialEq, Clone)]
     /// The request from client side
+    #[derive(Debug, Eq, PartialEq, Clone)]
     pub enum ServerOp {
         /// Write input string into server stream
         Input(String),
@@ -174,10 +135,10 @@ pub(self) mod codec {
 }
 // codec:1 ends here
 
-// [[file:../vasp-server.note::*client][client:1]]
+// [[file:../vasp-tools.note::*client][client:1]]
 mod client {
     use super::*;
-    use structopt::*;
+    use std::io::{Read, Write};
 
     /// Client of Unix domain socket
     pub struct Client {
@@ -217,6 +178,7 @@ mod client {
             Ok(())
         }
 
+        /// Try to tell the background computation to stop
         pub fn try_stop(&mut self) -> Result<()> {
             self.write_input("")?;
             let op = codec::ServerOp::Stop;
@@ -235,18 +197,19 @@ mod client {
 }
 // client:1 ends here
 
-// [[file:../vasp-server.note::*final version][final version:1]]
+// [[file:../vasp-tools.note::*server][server:1]]
 mod server {
     use super::*;
+    use std::process::{Child, Command};
 
     #[derive(Debug)]
-    pub struct SocketServer {
+    pub struct Server {
         socket_file: PathBuf,
         listener: UnixListener,
         stream: Option<UnixStream>,
     }
 
-    impl SocketServer {
+    impl Server {
         // Create a new VASP server. Return error if the server already started.
         pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
             let socket_file = path.as_ref().to_owned();
@@ -257,7 +220,7 @@ mod server {
             let listener = UnixListener::bind(&socket_file).context("bind socket")?;
             info!("serve socket {:?}", socket_file);
 
-            Ok(SocketServer {
+            Ok(Server {
                 listener,
                 socket_file,
                 stream: None,
@@ -278,8 +241,9 @@ mod server {
 
         fn handle_clients(&mut self, mut server_stream: UnixStream) -> Result<()> {
             use codec::ServerOp;
+            use std::io::BufRead;
 
-            let mut lines = BufReader::new(server_stream.try_clone()?).lines();
+            let mut lines = std::io::BufReader::new(server_stream.try_clone()?).lines();
             loop {
                 // 1. 等待client发送指令
                 self.wait_for_client()?;
@@ -351,7 +315,7 @@ mod server {
         }
     }
 
-    impl Drop for SocketServer {
+    impl Drop for Server {
         // clean upunix socket file
         fn drop(&mut self) {
             if self.socket_file.exists() {
@@ -380,88 +344,18 @@ mod server {
             )
         };
 
-        let child = Command::new(script).stdin(i_cmd).stdout(o_cmd).stderr(e_cmd).spawn()?;
+        let child = std::process::Command::new(script)
+            .stdin(i_cmd)
+            .stdout(o_cmd)
+            .stderr(e_cmd)
+            .spawn()?;
 
         Ok(child)
     }
 }
-// final version:1 ends here
+// server:1 ends here
 
-// [[file:../vasp-server.note::*cli][cli:1]]
-mod cli {
-    use super::*;
-    use structopt::*;
-
-    /// A program runner provides long live interaction service over unix
-    /// domain socket.
-    #[derive(Debug, StructOpt)]
-    struct ServerCli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-
-        /// Path to the script to run
-        #[structopt(short = "x")]
-        script_file: PathBuf,
-
-        /// Path to the socket file to bind
-        #[structopt(short = "u", default_value = "vasp.sock")]
-        socket_file: PathBuf,
-    }
-
-    /// A client of a unix domain socket server for interacting with the program
-    /// run in background
-    #[derive(Debug, StructOpt)]
-    struct ClientCli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-
-        /// Path to the socket file to connect
-        #[structopt(short = "u", default_value = "vasp.sock")]
-        socket_file: PathBuf,
-
-        /// Stop VASP server
-        #[structopt(short = "q")]
-        stop: bool,
-    }
-
-    pub fn server_enter_main() -> Result<()> {
-        let args = ServerCli::from_args();
-        args.verbose.setup_logger();
-
-        let mut server = server::SocketServer::create(&args.socket_file)?;
-        server.run_and_serve(&args.script_file)?;
-
-        Ok(())
-    }
-
-    pub fn client_enter_main() -> Result<()> {
-        let args = ClientCli::from_args();
-        args.verbose.setup_logger();
-
-        let mut client = client::Client::connect(&args.socket_file)?;
-
-        if args.stop {
-            crate::vasp::write_stopcar()?;
-            client.try_stop()?;
-        } else {
-            // FIXME: this is hacky
-            // let input = crate::vasp::get_scaled_positions()?;
-            client.write_input("xx")?;
-
-            let s = client.read_expect("POSITIONS: reading from stdin")?;
-            let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
-
-            let mut mp = gosh::model::ModelProperties::default();
-            mp.set_energy(energy);
-            mp.set_forces(forces);
-            println!("{}", mp);
-        }
-
-        Ok(())
-    }
-}
-// cli:1 ends here
-
-// [[file:../vasp-server.note::*pub][pub:1]]
-pub use self::cli::*;
+// [[file:../vasp-tools.note::*pub][pub:1]]
+pub use self::client::*;
+pub use self::server::*;
 // pub:1 ends here
