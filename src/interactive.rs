@@ -42,7 +42,7 @@ impl Task {
     }
 
     /// read output from process stdout until matching a `pattern`
-    pub fn read_output_until(&mut self, pattern: &str) -> Result<String> {
+    pub fn read_stdout_until(&mut self, pattern: &str) -> Result<String> {
         let (txt, _) = self
             .stream1
             .read_until(&ReadUntil::String(pattern.into()))
@@ -55,8 +55,21 @@ impl Task {
 
 // [[file:../vasp-tools.note::*drop][drop:1]]
 impl Drop for Task {
+    // NOTE: There is no implementation of Drop for std::process::Child
     fn drop(&mut self) {
-        dbg!();
+        let child = &mut self.child;
+
+        // wait one second
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        if let Ok(Some(x)) = child.try_wait() {
+            info!("child process exited gracefully.");
+        } else {
+            eprintln!("force to kill child process: {}", child.id());
+            if let Err(e) = child.kill() {
+                dbg!(e);
+            }
+        }
     }
 }
 // drop:1 ends here
@@ -74,10 +87,10 @@ fn test_task() {
 
     let mut task = Task::new(child);
     task.write_stdin("test1\n").unwrap();
-    let x = task.read_output_until("\n").unwrap();
+    let x = task.read_stdout_until("\n").unwrap();
     assert_eq!(x, "test1");
     task.write_stdin("test2\n").unwrap();
-    let x = task.read_output_until("\n").unwrap();
+    let x = task.read_stdout_until("\n").unwrap();
     assert_eq!(x, "test2");
 }
 // test:1 ends here

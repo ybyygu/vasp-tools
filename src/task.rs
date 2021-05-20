@@ -1,4 +1,4 @@
-// [[file:../vasp-server.note::*imports][imports:1]]
+// [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 
 use gchemol::prelude::*;
@@ -9,7 +9,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
-// [[file:../vasp-server.note::*base][base:1]]
+// [[file:../vasp-tools.note::*base][base:1]]
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use std::io::prelude::*;
@@ -35,7 +35,7 @@ impl Task {
 }
 // base:1 ends here
 
-// [[file:../vasp-server.note::*stop][stop:1]]
+// [[file:../vasp-tools.note::*stop][stop:1]]
 impl Drop for Task {
     fn drop(&mut self) {
         // if let Err(msg) = crate::vasp::write_stopcar() {
@@ -45,7 +45,7 @@ impl Drop for Task {
 }
 // stop:1 ends here
 
-// [[file:../vasp-server.note::*compute & output][compute & output:1]]
+// [[file:../vasp-tools.note::*compute & output][compute & output:1]]
 use gosh::model::ModelProperties;
 
 impl Task {
@@ -76,7 +76,7 @@ impl Task {
                 mp.set_forces(forces);
                 return Ok(mp);
             }
-            writeln!(&mut text, "{}", line);
+            writeln!(&mut text, "{}", line)?;
         }
         bail!("no model properties found!");
     }
@@ -101,3 +101,7 @@ impl Task {
     }
 }
 // compute & output:1 ends here
+
+// [[file:../vasp-tools.note::*core][core:1]]
+
+// core:1 ends here

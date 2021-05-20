@@ -200,6 +200,7 @@ mod client {
 // [[file:../vasp-tools.note::*server][server:1]]
 mod server {
     use super::*;
+    use crate::interactive::Task;
     use std::process::{Child, Command};
 
     #[derive(Debug)]
@@ -210,7 +211,7 @@ mod server {
     }
 
     impl Server {
-        // Create a new VASP server. Return error if the server already started.
+        // Create a new socket server. Return error if the server already started.
         pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
             let socket_file = path.as_ref().to_owned();
             if socket_file.exists() {
@@ -227,48 +228,33 @@ mod server {
             })
         }
 
-        fn wait_for_client(&mut self) -> Result<()> {
+        fn wait_for_client_stream(&mut self) -> Result<UnixStream> {
             info!("wait for new client");
             let (stream, _) = self.listener.accept().context("accept new unix socket client")?;
-            self.stream = stream.into();
 
-            Ok(())
+            Ok(stream)
         }
 
-        fn stream(&mut self) -> &mut UnixStream {
-            self.stream.as_mut().expect("unix stream not ready")
-        }
-
-        fn handle_clients(&mut self, mut server_stream: UnixStream) -> Result<()> {
+        // main loop
+        fn handle_clients(&mut self, task: &mut Task) -> Result<()> {
             use codec::ServerOp;
             use std::io::BufRead;
 
-            let mut lines = std::io::BufReader::new(server_stream.try_clone()?).lines();
             loop {
-                // 1. 等待client发送指令
-                self.wait_for_client()?;
-                let client_stream = self.stream();
-                while let Ok(op) = ServerOp::decode(client_stream) {
+                // wait for client requests
+                let mut client_stream = self.wait_for_client_stream()?;
+                while let Ok(op) = ServerOp::decode(&mut client_stream) {
                     match op {
                         // Write `msg` into server stream
                         ServerOp::Input(msg) => {
-                            info!("got input from client");
-                            codec::send_msg(&mut server_stream, msg.as_bytes())?;
+                            info!("got input from client: {} bytes.", msg.len());
+                            task.write_stdin(&msg)?;
                         }
-                        // Read lines from server_stream until found `pattern`
+                        // Read task's stdout until the line matching the `pattern`
                         ServerOp::Output(pattern) => {
-                            info!("client asks for output");
-                            // collect text line by line until we found the `pattern`
-                            let mut txt = String::new();
-                            while let Some(line) = lines.next() {
-                                let line = line?;
-                                writeln!(&mut txt, "{}", line)?;
-                                if line.contains(&pattern) {
-                                    break;
-                                }
-                            }
-                            // send colelcted text to client
-                            codec::send_msg_encode(client_stream, &txt)?;
+                            info!("client ask for computational output");
+                            let txt = task.read_stdout_until(&pattern)?;
+                            codec::send_msg_encode(&mut client_stream, &txt)?;
                         }
                         ServerOp::Stop => {
                             info!("client requests to stop server");
@@ -284,32 +270,18 @@ mod server {
             Ok(())
         }
 
-        // kill child process
-        fn final_cleanup(&self, mut child: Child) -> Result<()> {
-            use std::time::Duration;
-
-            // wait one second
-            std::thread::sleep(Duration::from_secs(1));
-            if let Ok(Some(x)) = child.try_wait() {
-                info!("child process exited gracefully.");
-            } else {
-                eprintln!("force to kill child process: {}", child.id());
-                child.kill()?;
-            }
-
-            Ok(())
-        }
-
         /// Run the `script_file` and serve the client interactions with it
-        pub fn run_and_serve(&mut self, script_file: &Path) -> Result<()> {
-            // make a persistent unix stream for a joint handling of child
-            // process's stdio
-            let (socket1, mut socket2) = UnixStream::pair()?;
+        pub fn run_and_serve(&mut self, program: &Path) -> Result<()> {
+            use std::process::{Command, Stdio};
 
-            let mut child = run_script(script_file, socket1)?;
-            self.handle_clients(socket2)?;
+            let child = Command::new(program)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut task = Task::new(child);
 
-            self.final_cleanup(child)?;
+            self.handle_clients(&mut task)?;
 
             Ok(())
         }
@@ -323,39 +295,86 @@ mod server {
             }
         }
     }
-
-    /// Run `script` in child process, and redirect stdin, stdout, stderr to
-    /// `stream`
-    fn run_script(script: &Path, stream: UnixStream) -> Result<Child> {
-        use std::os::unix::io::{AsRawFd, FromRawFd};
-
-        info!("run script: {:?}", script);
-        let mut i_stream = stream.try_clone()?;
-        let mut o_stream = stream.try_clone()?;
-        let mut e_stream = stream.try_clone()?;
-
-        // make unix stream as file descriptors for process stdio
-        let (i_cmd, o_cmd, e_cmd) = unsafe {
-            use std::process::Stdio;
-            (
-                Stdio::from_raw_fd(i_stream.as_raw_fd()),
-                Stdio::from_raw_fd(o_stream.as_raw_fd()),
-                Stdio::from_raw_fd(e_stream.as_raw_fd()),
-            )
-        };
-
-        let child = std::process::Command::new(script)
-            .stdin(i_cmd)
-            .stdout(o_cmd)
-            .stderr(e_cmd)
-            .spawn()?;
-
-        Ok(child)
-    }
 }
 // server:1 ends here
+
+// [[file:../vasp-tools.note::*cli][cli:1]]
+mod cli {
+    use super::*;
+    use structopt::*;
+
+    /// A program runner provides long live interaction service over unix
+    /// domain socket.
+    #[derive(Debug, StructOpt)]
+    struct ServerCli {
+        #[structopt(flatten)]
+        verbose: gut::cli::Verbosity,
+
+        /// Path to the script to run
+        #[structopt(short = "x")]
+        script_file: PathBuf,
+
+        /// Path to the socket file to bind
+        #[structopt(short = "u", default_value = "vasp.sock")]
+        socket_file: PathBuf,
+    }
+
+    /// A client of a unix domain socket server for interacting with the program
+    /// run in background
+    #[derive(Debug, StructOpt)]
+    struct ClientCli {
+        #[structopt(flatten)]
+        verbose: gut::cli::Verbosity,
+
+        /// Path to the socket file to connect
+        #[structopt(short = "u", default_value = "vasp.sock")]
+        socket_file: PathBuf,
+
+        /// Stop VASP server
+        #[structopt(short = "q")]
+        stop: bool,
+    }
+
+    pub fn server_enter_main() -> Result<()> {
+        let args = ServerCli::from_args();
+        args.verbose.setup_logger();
+
+        let mut server = server::Server::create(&args.socket_file)?;
+        server.run_and_serve(&args.script_file)?;
+
+        Ok(())
+    }
+
+    pub fn client_enter_main() -> Result<()> {
+        let args = ClientCli::from_args();
+        args.verbose.setup_logger();
+
+        let mut client = client::Client::connect(&args.socket_file)?;
+
+        if args.stop {
+            // crate::vasp::write_stopcar()?;
+            client.try_stop()?;
+        } else {
+            // FIXME: this is hacky
+            // let input = crate::vasp::get_scaled_positions()?;
+            client.write_input("")?;
+
+            let s = client.read_expect("POSITIONS: reading from stdin")?;
+            let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
+
+            let mut mp = gosh::model::ModelProperties::default();
+            mp.set_energy(energy);
+            mp.set_forces(forces);
+            println!("{}", mp);
+        }
+
+        Ok(())
+    }
+}
+// cli:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
 pub use self::client::*;
 pub use self::server::*;
+pub use self::cli::*;
 // pub:1 ends here
