@@ -8,6 +8,7 @@ use nix::unistd::Pid;
 
 // [[file:../vasp-tools.note::*mods][mods:1]]
 mod incar;
+mod interactive;
 mod server;
 mod socket;
 mod task;
