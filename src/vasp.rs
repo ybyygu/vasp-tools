@@ -1,10 +1,10 @@
-// [[file:../vasp-server.note::*imports][imports:1]]
+// [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
-// [[file:../vasp-server.note::*INCAR file][INCAR file:1]]
+// [[file:../vasp-tools.note::*INCAR file][INCAR file:1]]
 use gut::prelude::*;
 
 #[derive(Debug, Clone)]
@@ -80,7 +80,7 @@ fn test_incar() -> Result<()> {
 }
 // INCAR file:1 ends here
 
-// [[file:../vasp-server.note::*update INCAR][update INCAR:1]]
+// [[file:../vasp-tools.note::*update INCAR][update INCAR:1]]
 fn update_vasp_incar_file(path: &Path) -> Result<()> {
     // INCAR file may contains invalid UTF-8 characters, so we handle it using
     // byte string
@@ -140,7 +140,7 @@ fn test_update_incar() -> Result<()> {
 }
 // update INCAR:1 ends here
 
-// [[file:../vasp-server.note::*poscar][poscar:1]]
+// [[file:../vasp-tools.note::*poscar][poscar:1]]
 // read scaled positions from POSCAR
 fn get_scaled_positions_from_poscar(path: &Path) -> Result<String> {
     let s = gut::fs::read_file(path)?;
@@ -179,7 +179,7 @@ fn test_poscar_positions() -> Result<()> {
 // }
 // poscar:1 ends here
 
-// [[file:../vasp-server.note::*stopcar][stopcar:1]]
+// [[file:../vasp-tools.note::*stopcar][stopcar:1]]
 pub(crate) fn write_stopcar() -> Result<()> {
     gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;
 
@@ -187,7 +187,8 @@ pub(crate) fn write_stopcar() -> Result<()> {
 }
 // stopcar:1 ends here
 
-// [[file:../vasp-server.note::*stdout][stdout:1]]
+// [[file:../vasp-tools.note::*stdout][stdout:1]]
+/// Parse energy and forces from VASP stdout when run in interactive mode
 pub(crate) mod stdout {
     use super::*;
     use std::io::prelude::*;
@@ -279,7 +280,7 @@ pub(crate) mod stdout {
 }
 // stdout:1 ends here
 
-// [[file:../vasp-server.note::*process][process:1]]
+// [[file:../vasp-tools.note::*process][process:1]]
 mod adhoc {
     use super::*;
     use duct::*;
@@ -350,7 +351,7 @@ mod adhoc {
 }
 // process:1 ends here
 
-// [[file:../vasp-server.note::*pub/cli][pub/cli:1]]
+// [[file:../vasp-tools.note::*pub/cli][pub/cli:1]]
 mod cli {
     use super::*;
     use structopt::*;

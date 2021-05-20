@@ -1,4 +1,4 @@
-// [[file:../vasp-server.note::*imports][imports:1]]
+// [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -6,14 +6,15 @@ use std::path::{Path, PathBuf};
 use nix::unistd::Pid;
 // imports:1 ends here
 
-// [[file:../vasp-server.note::*mods][mods:1]]
+// [[file:../vasp-tools.note::*mods][mods:1]]
+mod incar;
 mod server;
 mod socket;
 mod task;
 mod vasp;
 // mods:1 ends here
 
-// [[file:../vasp-server.note::*pidfile][pidfile:1]]
+// [[file:../vasp-tools.note::*pidfile][pidfile:1]]
 #[derive(Debug)]
 pub struct PidFile {
     file: std::fs::File,
@@ -56,7 +57,7 @@ impl Drop for PidFile {
 }
 // pidfile:1 ends here
 
-// [[file:../vasp-server.note::*daemon][daemon:1]]
+// [[file:../vasp-tools.note::*daemon][daemon:1]]
 #[cfg(unix)]
 pub fn daemonize() -> Result<PidFile> {
     // use std::os::unix::io::AsRawFd;
@@ -97,7 +98,7 @@ pub fn daemonize() -> Result<PidFile> {
 }
 // daemon:1 ends here
 
-// [[file:../vasp-server.note::*pub][pub:1]]
+// [[file:../vasp-tools.note::*pub][pub:1]]
 pub use crate::task::*;
 
 // FIXME: remove
