@@ -181,7 +181,7 @@ mod client {
 
         /// Try to tell the background computation to stop
         pub fn try_stop(&mut self) -> Result<()> {
-            self.write_input("")?;
+            info!("Ask server to stop ...");
             let op = codec::ServerOp::Stop;
             self.send_op(op)?;
 
@@ -236,26 +236,34 @@ mod server {
             Ok(stream)
         }
 
-        // main loop
-        fn handle_clients(&mut self, task: &mut Task) -> Result<()> {
+        /// Run the `script_file` and serve the client interactions with it
+        pub fn run_and_serve(&mut self, program: &Path) -> Result<()> {
             use codec::ServerOp;
             use std::io::BufRead;
 
+            let mut task = None;
             loop {
                 // wait for client requests
                 let mut client_stream = self.wait_for_client_stream()?;
                 while let Ok(op) = ServerOp::decode(&mut client_stream) {
                     match op {
-                        // Write `msg` into server stream
+                        // Write `msg` into task's stdin if not empty.
                         ServerOp::Input(msg) => {
                             info!("got input ({} bytes) from client.", msg.len());
-                            task.write_stdin(&msg)?;
+                            let task = task.get_or_insert_with(|| create_task(program));
+                            if !msg.is_empty() {
+                                task.write_stdin(&msg)?;
+                            }
                         }
                         // Read task's stdout until the line matching the `pattern`
                         ServerOp::Output(pattern) => {
                             info!("client ask for computed results");
-                            let txt = task.read_stdout_until(&pattern)?;
-                            codec::send_msg_encode(&mut client_stream, &txt)?;
+                            if let Some(task) = task.as_mut() {
+                                let txt = task.read_stdout_until(&pattern)?;
+                                codec::send_msg_encode(&mut client_stream, &txt)?;
+                            } else {
+                                bail!("Cannot interact with the task's stdout, as it is not started yet!");
+                            }
                         }
                         ServerOp::Stop => {
                             info!("client requests to stop computation server");
@@ -270,22 +278,6 @@ mod server {
 
             Ok(())
         }
-
-        /// Run the `script_file` and serve the client interactions with it
-        pub fn run_and_serve(&mut self, program: &Path) -> Result<()> {
-            use std::process::{Command, Stdio};
-
-            let child = Command::new(program)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let mut task = Task::new(child);
-
-            self.handle_clients(&mut task)?;
-
-            Ok(())
-        }
     }
 
     impl Drop for Server {
@@ -295,6 +287,18 @@ mod server {
                 let _ = std::fs::remove_file(&self.socket_file);
             }
         }
+    }
+
+    fn create_task(program: &Path) -> Task {
+        debug!("run program: {:?}", program);
+        use std::process::{Command, Stdio};
+
+        let child = Command::new(program)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        Task::new(child)
     }
 }
 // server:1 ends here
@@ -340,8 +344,7 @@ mod cli {
         let args = ServerCli::from_args();
         args.verbose.setup_logger();
 
-        let mut server = server::Server::create(&args.socket_file)?;
-        server.run_and_serve(&args.script_file)?;
+        server::Server::create(&args.socket_file)?.run_and_serve(&args.script_file)?;
 
         Ok(())
     }
@@ -355,16 +358,16 @@ mod cli {
         if args.stop {
             client.try_stop()?;
         } else {
-            // for the vasp run, VASP reads coordinates from POSCAR
+            // for the first time run, VASP reads coordinates from POSCAR
             if !std::path::Path::new("OUTCAR").exists() {
                 info!("Write complete POSCAR file for initial calculation.");
                 let txt = crate::vasp::read_txt_from_stdin()?;
                 gut::fs::write_to_file("POSCAR", &txt)?;
-                // inform server to start
-                client.write_input("\n")?;
+                // inform server to start with empty input
+                client.write_input("")?;
             } else {
                 // redirect scaled positions to server for interactive VASP calculations
-                info!("Send only scaled coordinates to interactive VASP server.");
+                info!("Send scaled coordinates to interactive VASP server.");
                 let txt = crate::vasp::get_scaled_positions_from_stdin()?;
                 client.write_input(&txt)?;
             };

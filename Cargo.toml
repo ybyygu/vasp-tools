@@ -15,10 +15,9 @@ structopt = "0.3"
 tempfile = "3.0"
 duct = "0.13"
 psutil = "3"
-heim = "0.1.0-rc.1"
 envfile = "0.2"
 chrono = "0.4"
-gut = { version = "0.1.4", package = "gchemol-gut" }
+gut = { version = "0.1.5", package = "gchemol-gut" }
 text_parser = { version = "0.2", package = "gchemol-parser" }
 rexpect = "0.4"
 

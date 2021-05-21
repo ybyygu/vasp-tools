@@ -9,7 +9,6 @@ use nix::unistd::Pid;
 // [[file:../vasp-tools.note::*mods][mods:1]]
 mod incar;
 mod interactive;
-mod server;
 mod socket;
 mod task;
 mod vasp;
@@ -100,11 +99,8 @@ pub fn daemonize() -> Result<PidFile> {
 // daemon:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
-pub use crate::task::*;
-
-// FIXME: remove
-pub use crate::server::*;
 pub use crate::socket::*;
+pub use crate::task::*;
 
 pub mod adhoc {
     pub use crate::vasp::*;
