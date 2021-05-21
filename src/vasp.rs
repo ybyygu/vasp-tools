@@ -166,17 +166,6 @@ fn test_poscar_positions() -> Result<()> {
 
     Ok(())
 }
-
-// pub fn get_scaled_positions() -> Result<String> {
-//     let poscar: &Path = "POSCAR".as_ref();
-//     let s = if poscar.exists() {
-//         String::new()
-//     } else {
-//         get_scaled_positions_from_poscar(poscar)?
-//     };
-
-//     Ok(s)
-// }
 // poscar:1 ends here
 
 // [[file:../vasp-tools.note::*stopcar][stopcar:1]]
@@ -186,6 +175,35 @@ pub(crate) fn write_stopcar() -> Result<()> {
     Ok(())
 }
 // stopcar:1 ends here
+
+// [[file:../vasp-tools.note::*stdin][stdin:1]]
+pub fn read_txt_from_stdin() -> Result<String> {
+    use std::io::{self, Read};
+
+    let mut buffer = String::new();
+    let mut stdin = io::stdin(); // We get `Stdin` here.
+    stdin.read_to_string(&mut buffer)?;
+    Ok(buffer)
+}
+
+fn get_scaled_positions_from_poscar_str(s: &str) -> Result<String> {
+    use gosh::gchemol::prelude::*;
+    use gosh::gchemol::Molecule;
+
+    let frac_coords: String = Molecule::from_str(s, "vasp/input")?
+        .get_scaled_positions()
+        .ok_or(format_err!("non-periodic structure?"))?
+        .map(|[x, y, z]| format!("{:19.16} {:19.16} {:19.16}\n", x, y, z))
+        .collect();
+
+    Ok(frac_coords)
+}
+
+pub fn get_scaled_positions_from_stdin() -> Result<String> {
+    let txt = read_txt_from_stdin()?;
+    get_scaled_positions_from_poscar_str(&txt)
+}
+// stdin:1 ends here
 
 // [[file:../vasp-tools.note::*stdout][stdout:1]]
 /// Parse energy and forces from VASP stdout when run in interactive mode
@@ -351,7 +369,7 @@ mod adhoc {
 }
 // process:1 ends here
 
-// [[file:../vasp-tools.note::*pub/cli][pub/cli:1]]
+// [[file:../vasp-tools.note::*cli][cli:1]]
 mod cli {
     use super::*;
     use structopt::*;
@@ -399,4 +417,4 @@ mod cli {
     }
 }
 pub use cli::enter_main;
-// pub/cli:1 ends here
+// cli:1 ends here

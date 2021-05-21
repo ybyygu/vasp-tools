@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 // [[file:../../vasp-tools.note::*main][main:1]]
 fn main() {
+    let run_vasp_cmd = "vasp";
+    
     todo!();
 }
 // main:1 ends here

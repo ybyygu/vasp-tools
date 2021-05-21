@@ -247,17 +247,17 @@ mod server {
                     match op {
                         // Write `msg` into server stream
                         ServerOp::Input(msg) => {
-                            info!("got input from client: {} bytes.", msg.len());
+                            info!("got input ({} bytes) from client.", msg.len());
                             task.write_stdin(&msg)?;
                         }
                         // Read task's stdout until the line matching the `pattern`
                         ServerOp::Output(pattern) => {
-                            info!("client ask for computational output");
+                            info!("client ask for computed results");
                             let txt = task.read_stdout_until(&pattern)?;
                             codec::send_msg_encode(&mut client_stream, &txt)?;
                         }
                         ServerOp::Stop => {
-                            info!("client requests to stop server");
+                            info!("client requests to stop computation server");
                             return Ok(());
                         }
                         _ => {
@@ -352,13 +352,23 @@ mod cli {
         let mut client = client::Client::connect(&args.socket_file)?;
 
         if args.stop {
-            // crate::vasp::write_stopcar()?;
             client.try_stop()?;
         } else {
-            // FIXME: this is hacky
-            // let input = crate::vasp::get_scaled_positions()?;
-            client.write_input("")?;
+            // for the vasp run, VASP reads coordinates from POSCAR
+            if !std::path::Path::new("OUTCAR").exists() {
+                info!("Write complete POSCAR file for initial calculation.");
+                let txt = crate::vasp::read_txt_from_stdin()?;
+                gut::fs::write_to_file("POSCAR", &txt)?;
+                // inform server to start
+                client.write_input("\n")?;
+            } else {
+                // redirect scaled positions to server for interactive VASP calculations
+                info!("Send only scaled coordinates to interactive VASP server.");
+                let txt = crate::vasp::get_scaled_positions_from_stdin()?;
+                client.write_input(&txt)?;
+            };
 
+            // wait for output
             let s = client.read_expect("POSITIONS: reading from stdin")?;
             let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
 
