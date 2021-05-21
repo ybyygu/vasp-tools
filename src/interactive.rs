@@ -59,12 +59,12 @@ impl Drop for Task {
     fn drop(&mut self) {
         let child = &mut self.child;
 
-        // wait one second
-        std::thread::sleep(std::time::Duration::from_secs(1));
-
         if let Ok(Some(x)) = child.try_wait() {
             info!("child process exited gracefully.");
         } else {
+            // wait one second
+            std::thread::sleep(std::time::Duration::from_secs(1));
+
             eprintln!("force to kill child process: {}", child.id());
             if let Err(e) = child.kill() {
                 dbg!(e);

@@ -149,7 +149,8 @@ mod client {
         /// Make connection to unix domain socket server
         pub fn connect(socket_file: &Path) -> Result<Self> {
             info!("Connect to socket server: {:?}", socket_file);
-            let stream = UnixStream::connect(socket_file)?;
+            let stream = UnixStream::connect(socket_file)
+                .with_context(|| format!("connect to socket file failure: {:?}", socket_file))?;
 
             let client = Self { stream };
             Ok(client)
