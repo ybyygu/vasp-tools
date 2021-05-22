@@ -1,213 +1,162 @@
+// [[file:../vasp-tools.note::*docs][docs:1]]
+//! Utilities for handling VASP input/output
+// docs:1 ends here
+
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 
 use std::path::{Path, PathBuf};
 // imports:1 ends here
 
-// [[file:../vasp-tools.note::*INCAR file][INCAR file:1]]
-use gut::prelude::*;
+// [[file:../vasp-tools.note::*update params][update params:1]]
+/// Handle VASP INCAR file
+pub mod incar {
+    use super::*;
 
-#[derive(Debug, Clone)]
-struct INCAR {
-    // in tag = value pair
-    params: Vec<(String, String)>,
-}
+    /// Return updated parameters in INCAR file with new `params`.
+    pub fn update_with_mandatory_params(path: &Path, params: &[&str]) -> Result<String> {
+        // INCAR file may contains invalid UTF-8 characters, so we handle it using
+        // byte string
+        use bstr::{ByteSlice, B};
 
-impl INCAR {
-    /// Read VASP INCAR from `path`
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // INCAR中可能会含有中文字符, 或者无效的UTF-8字符
-        use bstr::{ByteSlice, ByteVec};
-
+        // remove mandatory tags defined by user, so we can add the required
+        // parameters later
         let bytes = std::fs::read(path)?;
-        let lines: Vec<&[u8]> = bytes.lines().filter(|line| line.contains_str("=")).collect();
-
-        let mut final_lines = String::new();
-        // 首先剔除所有"#"号开头的注释
-        for line in lines {
-            if let Some(i) = line.find("#") {
-                line[0..i].to_str_lossy_into(&mut final_lines);
-            } else {
-                line[..].to_str_lossy_into(&mut final_lines);
-            }
-            final_lines += "\n";
-        }
-
-        let mut params: Vec<(String, String)> = vec![];
-        for line in final_lines.lines() {
-            let s: Vec<_> = line.splitn(2, "=").collect();
-            // 变成大写的TAG
-            let tag = s[0].trim();
-            // 同一行可以出现多个tag=value组合, 中间用"；"分隔
-            let value = s[1].trim();
-            if value.contains(";") {
-                warn!("; found. that is not supported.")
-            }
-            params.push((tag.to_uppercase(), value.to_string()));
-        }
-        let incar = Self { params };
-
-        Ok(incar)
-    }
-
-    /// Save as INCAR file
-    pub fn save(&self) -> Result<()> {
-        let n = self
-            .params
-            .iter()
-            .map(|(tag, _)| tag.len())
-            .max()
-            .expect("INCAR: no lines");
-
-        let lines: String = self
-            .params
-            .iter()
-            .map(|(tag, value)| format!("{:n$} = {}\n", tag, value, n = n))
-            .collect();
-
-        gut::fs::write_to_file("INCAR", &lines)?;
-        Ok(())
-    }
-}
-
-#[test]
-#[ignore]
-fn test_incar() -> Result<()> {
-    let incar = INCAR::from_file("./tests/files/INCAR")?;
-    dbg!(incar);
-
-    Ok(())
-}
-// INCAR file:1 ends here
-
-// [[file:../vasp-tools.note::*update INCAR][update INCAR:1]]
-fn update_vasp_incar_file(path: &Path) -> Result<()> {
-    // INCAR file may contains invalid UTF-8 characters, so we handle it using
-    // byte string
-    use bstr::{ByteSlice, B};
-
-    let mandatory_params = vec![
-        "POTIM = 0",
-        "NELM = 200",
-        "NSW = 0",
-        "IBRION = -1",
-        "ISYM = 0",
-        "INTERACTIVE = .TRUE.",
-    ];
-
-    // remove mandatory tags defined by user, so we can add the required
-    // parameters later
-    let bytes = std::fs::read(path)?;
-    let mut lines: Vec<&[u8]> = bytes
-        .lines()
-        .filter(|line| {
-            let s = line.trim_start();
-            if !s.starts_with_str("#") && s.contains_str("=") {
-                let parts: Vec<_> = s.splitn_str(2, "=").collect();
-                if parts.len() == 2 {
-                    let tag = parts[0].trim().to_uppercase();
-                    for param in mandatory_params.iter() {
-                        let param = param.as_bytes().as_bstr();
-                        if param.starts_with(&tag) {
-                            return false;
+        let mut lines: Vec<&[u8]> = bytes
+            .lines()
+            .filter(|line| {
+                let s = line.trim_start();
+                if !s.starts_with_str("#") && s.contains_str("=") {
+                    let parts: Vec<_> = s.splitn_str(2, "=").collect();
+                    if parts.len() == 2 {
+                        let tag = parts[0].trim().to_uppercase();
+                        for param in params.iter() {
+                            let param = param.as_bytes().as_bstr();
+                            if param.starts_with(&tag) {
+                                return false;
+                            }
                         }
                     }
                 }
-            }
-            true
-        })
-        .collect();
+                true
+            })
+            .collect();
 
-    // append mandatory parameters
-    lines.push(B("# Mandatory parameters for VASP server:"));
-    for param in mandatory_params.iter() {
-        lines.push(B(param));
+        // append mandatory parameters
+        lines.push(B("# Mandatory parameters for VASP server:"));
+        for param in params.iter() {
+            lines.push(B(param));
+        }
+        let txt = bstr::join("\n", &lines).to_str_lossy().into();
+
+        Ok(txt)
     }
-    let txt = bstr::join("\n", &lines);
-    println!("{}", txt.to_str_lossy());
 
-    std::fs::write("/tmp/INCAR_new", txt)?;
+    #[test]
+    #[ignore]
+    fn test_update_incar() -> Result<()> {
+        let mandatory_params = vec![
+            "POTIM = 0",
+            "NELM = 200",
+            "NSW = 0",
+            "IBRION = -1",
+            "ISYM = 0",
+            "INTERACTIVE = .TRUE.",
+        ];
 
-    Ok(())
+        let s = update_with_mandatory_params("./tests/files/INCAR".as_ref(), &mandatory_params)?;
+        gut::fs::write_to_file("/tmp/INCAR_new", &s)?;
+
+        Ok(())
+    }
 }
-
-#[test]
-#[ignore]
-fn test_update_incar() -> Result<()> {
-    update_vasp_incar_file("./tests/files/INCAR".as_ref())?;
-
-    Ok(())
-}
-// update INCAR:1 ends here
+// update params:1 ends here
 
 // [[file:../vasp-tools.note::*poscar][poscar:1]]
-// read scaled positions from POSCAR
-fn get_scaled_positions_from_poscar(path: &Path) -> Result<String> {
-    let s = gut::fs::read_file(path)?;
+/// Handle VASP POSCAR file
+pub mod poscar {
+    use super::*;
+    
+    // read scaled positions from POSCAR
+    fn get_scaled_positions_from_poscar(path: &Path) -> Result<String> {
+        let s = gut::fs::read_file(path)?;
 
-    let lines: Vec<_> = s
-        .lines()
-        .skip_while(|line| !line.to_uppercase().starts_with("DIRECT"))
-        .skip(1)
-        .take_while(|line| !line.trim().is_empty())
-        .collect();
-    let mut positions = lines.join("\n");
-    // final line separator
-    positions += "\n";
-    Ok(positions)
-}
+        let lines: Vec<_> = s
+            .lines()
+            .skip_while(|line| !line.to_uppercase().starts_with("DIRECT"))
+            .skip(1)
+            .take_while(|line| !line.trim().is_empty())
+            .collect();
+        let mut positions = lines.join("\n");
+        // final line separator
+        positions += "\n";
+        Ok(positions)
+    }
 
-#[test]
-fn test_poscar_positions() -> Result<()> {
-    let poscar = "./tests/files/live-vasp/POSCAR";
+    #[test]
+    fn test_poscar_positions() -> Result<()> {
+        let poscar = "./tests/files/live-vasp/POSCAR";
 
-    let s = get_scaled_positions_from_poscar(poscar.as_ref())?;
-    assert_eq!(s.lines().count(), 25);
+        let s = get_scaled_positions_from_poscar(poscar.as_ref())?;
+        assert_eq!(s.lines().count(), 25);
 
-    Ok(())
+        Ok(())
+    }
 }
 // poscar:1 ends here
 
 // [[file:../vasp-tools.note::*stopcar][stopcar:1]]
-pub(crate) fn write_stopcar() -> Result<()> {
-    gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;
+/// The STOPCAR file for stopping interactive calculation.
+pub mod stopcar {
+    use super::*;
 
-    Ok(())
+    pub fn write() -> Result<()> {
+        gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;
+
+        Ok(())
+    }
 }
 // stopcar:1 ends here
 
 // [[file:../vasp-tools.note::*stdin][stdin:1]]
-pub fn read_txt_from_stdin() -> Result<String> {
-    use std::io::{self, Read};
+/// Handle text from stdin
+pub mod stdin {
+    use super::*;
 
-    let mut buffer = String::new();
-    let mut stdin = io::stdin(); // We get `Stdin` here.
-    stdin.read_to_string(&mut buffer)?;
-    Ok(buffer)
-}
+    fn get_scaled_positions_from_poscar_str(s: &str) -> Result<String> {
+        use gosh::gchemol::prelude::*;
+        use gosh::gchemol::Molecule;
 
-fn get_scaled_positions_from_poscar_str(s: &str) -> Result<String> {
-    use gosh::gchemol::prelude::*;
-    use gosh::gchemol::Molecule;
+        let frac_coords: String = Molecule::from_str(s, "vasp/input")?
+            .get_scaled_positions()
+            .ok_or(format_err!("non-periodic structure?"))?
+            .map(|[x, y, z]| format!("{:19.16} {:19.16} {:19.16}\n", x, y, z))
+            .collect();
 
-    let frac_coords: String = Molecule::from_str(s, "vasp/input")?
-        .get_scaled_positions()
-        .ok_or(format_err!("non-periodic structure?"))?
-        .map(|[x, y, z]| format!("{:19.16} {:19.16} {:19.16}\n", x, y, z))
-        .collect();
+        Ok(frac_coords)
+    }
 
-    Ok(frac_coords)
-}
+    /// Read scaled positions from current process's standard input
+    pub fn get_scaled_positions_from_stdin() -> Result<String> {
+        let txt = read_txt_from_stdin()?;
+        get_scaled_positions_from_poscar_str(&txt)
+    }
 
-pub fn get_scaled_positions_from_stdin() -> Result<String> {
-    let txt = read_txt_from_stdin()?;
-    get_scaled_positions_from_poscar_str(&txt)
+    /// Read text from current process's standard input
+    pub fn read_txt_from_stdin() -> Result<String> {
+        use std::io::{self, Read};
+
+        let mut buffer = String::new();
+        let mut stdin = io::stdin(); // We get `Stdin` here.
+        stdin.read_to_string(&mut buffer)?;
+        Ok(buffer)
+    }
 }
 // stdin:1 ends here
 
 // [[file:../vasp-tools.note::*stdout][stdout:1]]
 /// Parse energy and forces from VASP stdout when run in interactive mode
-pub(crate) mod stdout {
+pub mod stdout {
     use super::*;
     use std::io::prelude::*;
     use text_parser::parsers::*;
@@ -297,124 +246,3 @@ pub(crate) mod stdout {
     }
 }
 // stdout:1 ends here
-
-// [[file:../vasp-tools.note::*process][process:1]]
-mod adhoc {
-    use super::*;
-    use duct::*;
-
-    fn get_process_ctime(pid: usize) -> Result<i64> {
-        let s = cmd!("ps", "-o", "lstart=", pid.to_string())
-            .env("LC_TIME", "C") // ensure plain time format
-            .read()?;
-
-        // convert unix timestamp
-        // date -d "Wed Jan 20 14:44:41 CST 2021" +%s --utc
-        let d = cmd!("date", "-d", &s, "+%s", "--utc").read()?.parse()?;
-        // let d = chrono::DateTime::parse_from_str(&s, "%c")?;
-        // dbg!(d);
-
-        Ok(d)
-    }
-
-    fn get_vasp_main_process_all(pattern: &str) -> Result<Vec<usize>> {
-        let p = cmd!("pgrep", pattern).read()?;
-        if p.trim().is_empty() {
-            bail!("no command found matching {:?}!", pattern);
-        }
-        let pids = p.lines().map(|l| l.parse().unwrap()).collect();
-
-        Ok(pids)
-    }
-
-    pub fn pause_process_group(ppid: usize) -> Result<()> {
-        debug!("try to suspend process group {}", ppid);
-        let _ = cmd!("pkill", "-SIGSTOP", "-P", ppid.to_string()).read()?;
-
-        Ok(())
-    }
-
-    pub fn resume_process_group(ppid: usize) -> Result<()> {
-        debug!("try to resume process group {}", ppid);
-        let _ = cmd!("pkill", "-SIGCONT", "-P", ppid.to_string()).read()?;
-
-        Ok(())
-    }
-
-    /// 找到匹配指定进程的VASP主进程
-    /// for intel mpi vasp
-    /// : res => pmi_proxy => 72 * vasp
-    /// the session leader is `res`
-    /// so we should control vasp by parent process id
-    pub fn find_vasp_main_process(ppid: usize, pattern: &str) -> Result<usize> {
-        let p_all = get_vasp_main_process_all(pattern)?;
-        info!("found {} vasp main processes using {:?}", p_all.len(), pattern);
-
-        // it is slow
-        let ctime_all: Vec<_> = p_all.iter().map(|&p| get_process_ctime(p).ok().unwrap()).collect();
-        let ctime1 = get_process_ctime(ppid)?;
-
-        let tmp_abs_diffs = ctime_all
-            .iter()
-            .enumerate()
-            .map(|(i, x)| ((x - ctime1).abs(), i))
-            .sorted()
-            .collect_vec();
-
-        let i = tmp_abs_diffs[0].1;
-        let main_vasp_pid = p_all[i];
-
-        Ok(main_vasp_pid)
-    }
-}
-// process:1 ends here
-
-// [[file:../vasp-tools.note::*cli][cli:1]]
-mod cli {
-    use super::*;
-    use structopt::*;
-
-    /// An adhoc helper program to control VASP mpi processes
-    #[derive(Debug, StructOpt)]
-    struct Cli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-
-        /// The process id of script calling VASP
-        ppid: usize,
-
-        /// The control action. Possible values include "pause", "resume"
-        #[structopt(long, short)]
-        action: Option<String>,
-
-        /// Search partern for finding main vasp process. The default value is
-        /// for Intel MPI version of VASP.
-        #[structopt(long, short, default_value = "pmi_proxy")]
-        pattern: String,
-    }
-
-    pub fn enter_main() -> Result<()> {
-        let args = Cli::from_args();
-        args.verbose.setup_logger();
-
-        let vasp_pid = adhoc::find_vasp_main_process(args.ppid, &args.pattern)?;
-        if let Some(action) = args.action {
-            info!("{} process group {}", action, vasp_pid);
-            match action.as_str() {
-                "pause" => {
-                    adhoc::pause_process_group(vasp_pid)?;
-                }
-                "resume" => {
-                    adhoc::resume_process_group(vasp_pid)?;
-                }
-                _ => {
-                    todo!();
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-pub use cli::enter_main;
-// cli:1 ends here

@@ -344,6 +344,17 @@ mod cli {
         let args = ServerCli::from_args();
         args.verbose.setup_logger();
 
+        let mandatory_params = vec![
+            "POTIM = 0",
+            "NELM = 200",
+            "NSW = 99999",
+            "IBRION = -1",
+            "ISYM = 0",
+            "INTERACTIVE = .TRUE.",
+        ];
+        let updated_incar = crate::vasp::incar::update_with_mandatory_params("INCAR".as_ref(), &mandatory_params)?;
+        gut::fs::write_to_file("INCAR", &updated_incar)?;
+
         server::Server::create(&args.socket_file)?.run_and_serve(&args.script_file)?;
 
         Ok(())
@@ -361,14 +372,14 @@ mod cli {
             // for the first time run, VASP reads coordinates from POSCAR
             if !std::path::Path::new("OUTCAR").exists() {
                 info!("Write complete POSCAR file for initial calculation.");
-                let txt = crate::vasp::read_txt_from_stdin()?;
+                let txt = crate::vasp::stdin::read_txt_from_stdin()?;
                 gut::fs::write_to_file("POSCAR", &txt)?;
                 // inform server to start with empty input
                 client.write_input("")?;
             } else {
                 // redirect scaled positions to server for interactive VASP calculations
                 info!("Send scaled coordinates to interactive VASP server.");
-                let txt = crate::vasp::get_scaled_positions_from_stdin()?;
+                let txt = crate::vasp::stdin::get_scaled_positions_from_stdin()?;
                 client.write_input(&txt)?;
             };
 

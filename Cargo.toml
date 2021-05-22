@@ -22,4 +22,8 @@ text_parser = { version = "0.2", package = "gchemol-parser" }
 rexpect = "0.4"
 
 [dev-dependencies]
+    
+[features]
+# for adhoc hacking
+adhoc = []
 # cargo.toml:1 ends here
