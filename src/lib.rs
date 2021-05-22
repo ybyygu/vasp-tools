@@ -96,6 +96,52 @@ pub fn daemonize() -> Result<PidFile> {
 }
 // daemon:1 ends here
 
+// [[file:../vasp-tools.note::*cli][cli:1]]
+mod cli {
+    use gut::prelude::*;
+    use std::path::PathBuf;
+    use structopt::*;
+
+    /// A helper program for run VASP calculations
+    #[derive(Debug, StructOpt)]
+    struct Cli {
+        #[structopt(flatten)]
+        verbose: gut::cli::Verbosity,
+
+        /// The command to invoke VASP program
+        #[structopt(short = "x")]
+        program: PathBuf,
+
+        #[structopt(long, conflicts_with = "interactive")]
+        single_point: bool,
+
+        #[structopt(long, conflicts_with = "single_point")]
+        interactive: bool,
+
+        /// Path to the socket file to bind (only valid for interactive calculation)
+        #[structopt(short = "u", default_value = "vasp.sock")]
+        socket_file: PathBuf,
+    }
+
+    pub fn run_vasp_enter_main() -> Result<()> {
+        let args = Cli::from_args();
+        args.verbose.setup_logger();
+
+        crate::vasp::update_incar_for_bbm(args.interactive)?;
+
+        let vasp_program = &args.program;
+        if args.interactive {
+            crate::socket::Server::create(&args.socket_file)?.run_and_serve(vasp_program)?;
+        } else {
+            duct::cmd!(vasp_program).unchecked().run()?;
+        }
+
+        Ok(())
+    }
+}
+// cli:1 ends here
+
 // [[file:../vasp-tools.note::*pub][pub:1]]
-pub use crate::socket::{server_enter_main, client_enter_main};
+pub use crate::cli::run_vasp_enter_main;
+pub use crate::socket::{client_enter_main, server_enter_main};
 // pub:1 ends here

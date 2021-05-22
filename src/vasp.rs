@@ -72,6 +72,38 @@ pub mod incar {
 }
 // update params:1 ends here
 
+// [[file:../vasp-tools.note::*pub][pub:1]]
+/// Update INCAR file in current directory for BBM calculation
+pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
+    info!("Update INCAR for VASP calculation: interactive = {:?}", interactive);
+
+    let mandatory_params = if interactive {
+        vec![
+            "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
+            "NSW = 99999",    // a large enough value is required to prevent early exit of VASP
+            "IBRION = -1",    // for static energy/force calculation
+            "INTERACTIVE = .TRUE.",
+            "POTIM = 0",
+            "ISYM = 0",
+        ]
+    } else {
+        vec![
+            "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
+            "NSW = 99999",    // a large enough value is required to prevent early exit of VASP
+            "IBRION = -1",    // for static energy/force calculation
+            "INTERACTIVE = .TRUE.",
+            "POTIM = 0",
+            "ISYM = 0",
+        ]
+    };
+
+    let updated_incar = crate::vasp::incar::update_with_mandatory_params("INCAR".as_ref(), &mandatory_params)?;
+    gut::fs::write_to_file("INCAR", &updated_incar)?;
+
+    Ok(())
+}
+// pub:1 ends here
+
 // [[file:../vasp-tools.note::*poscar][poscar:1]]
 /// Handle VASP POSCAR file
 pub mod poscar {
