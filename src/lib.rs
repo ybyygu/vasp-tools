@@ -108,7 +108,7 @@ mod cli {
         #[structopt(flatten)]
         verbose: gut::cli::Verbosity,
 
-        /// The command to invoke VASP program
+        /// The command or the path to invoking VASP program
         #[structopt(short = "x")]
         program: PathBuf,
 
@@ -137,19 +137,29 @@ mod cli {
         if args.interactive {
             crate::socket::Server::create(&args.socket_file)?.run_and_serve(vasp_program)?;
         } else {
-            // FIXME: cannot find vasp535 program, why?
-            // duct::cmd!(vasp_program)
-            //     .unchecked()
-            //     .run()
-            //     .with_context(|| format!("run {:?} failure", vasp_program))?;
-
-            if let Err(e) = std::process::Command::new(vasp_program)
-                .spawn()
-                .with_context(|| format!("run vasp program: {:?}", vasp_program))?
-                .wait()
-            {
-                error!("wait vasp process error: {:?}", e);
+            // NOTE: we need handle duct::IntoExecutablePath trick. In duct
+            // crate, the Path has different semantics with `String`: a program
+            // registered under PATH env var or the path (relative or full) to
+            // the program file?
+            let _cmd = vasp_program.to_string_lossy();
+            if _cmd.contains("/") {
+                duct::cmd!(vasp_program)
+            } else {
+                duct::cmd!(_cmd.into_owned())
             }
+            .unchecked()
+            .run()
+            .with_context(|| format!("Run VASP failure using {:?}", vasp_program))?;
+
+            // use Command in std lib?
+            //
+            // if let Err(e) = std::process::Command::new(vasp_program)
+            //     .spawn()
+            //     .with_context(|| format!("run vasp program: {:?}", vasp_program))?
+            //     .wait()
+            // {
+            //     error!("wait vasp process error: {:?}", e);
+            // }
         }
 
         Ok(())
