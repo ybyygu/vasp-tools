@@ -43,7 +43,7 @@ pub mod incar {
             .collect();
 
         // append mandatory parameters
-        lines.push(B("# Mandatory parameters for VASP server:"));
+        // lines.push(B("# Mandatory parameters for VASP server:"));
         for param in params.iter() {
             lines.push(B(param));
         }
@@ -89,9 +89,9 @@ pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
     } else {
         vec![
             "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
-            "NSW = 99999",    // a large enough value is required to prevent early exit of VASP
+            "NSW = 0",        // one time single point calculation for energy and forces
             "IBRION = -1",    // for static energy/force calculation
-            "INTERACTIVE = .TRUE.",
+            "INTERACTIVE = .FALSE.",
             "POTIM = 0",
             "ISYM = 0",
         ]

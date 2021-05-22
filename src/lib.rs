@@ -137,7 +137,19 @@ mod cli {
         if args.interactive {
             crate::socket::Server::create(&args.socket_file)?.run_and_serve(vasp_program)?;
         } else {
-            duct::cmd!(vasp_program).unchecked().run()?;
+            // FIXME: cannot find vasp535 program, why?
+            // duct::cmd!(vasp_program)
+            //     .unchecked()
+            //     .run()
+            //     .with_context(|| format!("run {:?} failure", vasp_program))?;
+
+            if let Err(e) = std::process::Command::new(vasp_program)
+                .spawn()
+                .with_context(|| format!("run vasp program: {:?}", vasp_program))?
+                .wait()
+            {
+                error!("wait vasp process error: {:?}", e);
+            }
         }
 
         Ok(())
