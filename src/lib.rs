@@ -112,9 +112,13 @@ mod cli {
         #[structopt(short = "x")]
         program: PathBuf,
 
+        /// Run VASP for one-time single point calculation. The mandatory
+        /// parameters in INCAR will be automatically updated.
         #[structopt(long, conflicts_with = "interactive")]
         single_point: bool,
 
+        /// Run VASP in interactive mode for long-live calculation. The
+        /// mandatory parameters in INCAR will be automatically updated.
         #[structopt(long, conflicts_with = "single_point")]
         interactive: bool,
 
