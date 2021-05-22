@@ -345,12 +345,13 @@ mod cli {
         args.verbose.setup_logger();
 
         let mandatory_params = vec![
+            "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
+            "NSW = 99999",    // a large enough value is required to prevent early exit of VASP
+            "IBRION = -1",    // for static energy/force calculation
+            "INTERACTIVE = .TRUE.",
             "POTIM = 0",
             "NELM = 200",
-            "NSW = 99999",
-            "IBRION = -1",
             "ISYM = 0",
-            "INTERACTIVE = .TRUE.",
         ];
         let updated_incar = crate::vasp::incar::update_with_mandatory_params("INCAR".as_ref(), &mandatory_params)?;
         gut::fs::write_to_file("INCAR", &updated_incar)?;
