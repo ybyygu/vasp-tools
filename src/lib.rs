@@ -9,7 +9,6 @@ use nix::unistd::Pid;
 // [[file:../vasp-tools.note::*mods][mods:1]]
 mod interactive;
 mod socket;
-mod task;
 mod vasp;
 // mods:1 ends here
 
