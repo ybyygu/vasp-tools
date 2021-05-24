@@ -169,5 +169,5 @@ mod cli {
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
 pub use crate::cli::run_vasp_enter_main;
-pub use crate::socket::{client_enter_main, server_enter_main};
+pub use crate::socket::client_enter_main;
 // pub:1 ends here

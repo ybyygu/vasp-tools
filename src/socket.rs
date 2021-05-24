@@ -308,22 +308,6 @@ mod cli {
     use super::*;
     use structopt::*;
 
-    /// A program runner provides long live interaction service over unix
-    /// domain socket.
-    #[derive(Debug, StructOpt)]
-    struct ServerCli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-
-        /// Path to the script to run
-        #[structopt(short = "x")]
-        script_file: PathBuf,
-
-        /// Path to the socket file to bind
-        #[structopt(short = "u", default_value = "vasp.sock")]
-        socket_file: PathBuf,
-    }
-
     /// A client of a unix domain socket server for interacting with the program
     /// run in background
     #[derive(Debug, StructOpt)]
@@ -338,16 +322,6 @@ mod cli {
         /// Stop VASP server
         #[structopt(short = "q")]
         stop: bool,
-    }
-
-    pub fn server_enter_main() -> Result<()> {
-        let args = ServerCli::from_args();
-        args.verbose.setup_logger();
-
-        crate::vasp::update_incar_for_bbm(true)?;
-        server::Server::create(&args.socket_file)?.run_and_serve(&args.script_file)?;
-
-        Ok(())
     }
 
     pub fn client_enter_main() -> Result<()> {
