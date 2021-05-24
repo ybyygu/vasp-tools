@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
-mod codec {
+pub mod codec {
     use super::*;
     use bytes::{Buf, BufMut, Bytes};
     use std::io::{Read, Write};

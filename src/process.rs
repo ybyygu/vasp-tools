@@ -6,6 +6,17 @@ use std::io::prelude::*;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*process group][process group:1]]
+macro_rules! setsid {
+    () => {{
+        // Don't check the error of setsid because it fails if we're the
+        // process leader already. We just forked so it shouldn't return
+        // error, but ignore it anyway.
+        nix::unistd::setsid().ok();
+
+        Ok(())
+    }};
+}
+
 pub trait ProcessGroupExt<T> {
     fn new_process_group(&mut self) -> &mut T;
 }
@@ -16,13 +27,16 @@ impl ProcessGroupExt<Command> for Command {
         use std::os::unix::process::CommandExt;
 
         unsafe {
-            self.pre_exec(|| {
-                // Don't check the error of setsid because it fails if we're the
-                // process leader already. We just forked so it shouldn't return
-                // error, but ignore it anyway.
-                nix::unistd::setsid().ok();
-                Ok(())
-            });
+            self.pre_exec(|| setsid!());
+        }
+        self
+    }
+}
+
+impl ProcessGroupExt<tokio::process::Command> for tokio::process::Command {
+    fn new_process_group(&mut self) -> &mut tokio::process::Command {
+        unsafe {
+            self.pre_exec(|| setsid!());
         }
         self
     }

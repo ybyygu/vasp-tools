@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 // [[file:../vasp-tools.note::*mods][mods:1]]
 mod interactive;
 mod process;
+mod session;
 mod socket;
 mod vasp;
 // mods:1 ends here
@@ -84,4 +85,7 @@ mod cli {
 // [[file:../vasp-tools.note::*pub][pub:1]]
 pub use crate::cli::run_vasp_enter_main;
 pub use crate::socket::client_enter_main;
+
+// FIXME: remove
+pub use crate::session::*;
 // pub:1 ends here

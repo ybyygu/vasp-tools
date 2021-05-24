@@ -1,17 +1,9 @@
-// [[file:../../vasp-tools.note::*imports][imports:1]]
-use gut::cli::*;
-use gut::prelude::*;
-use structopt::*;
-
-use std::path::{Path, PathBuf};
-// imports:1 ends here
-
-// [[file:../../vasp-tools.note::*main][main:1]]
+// [[file:../../vasp-tools.note::*bin/run-vasp.rs][bin/run-vasp.rs:1]]
 use gut::prelude::*;
 
 fn main() -> Result<()> {
-    vasp_tools::run_vasp_enter_main()?;
+    vasp_tools::adhoc_run_vasp_enter_main()?;
 
     Ok(())
 }
-// main:1 ends here
+// bin/run-vasp.rs:1 ends here
