@@ -153,12 +153,13 @@ impl Session {
         let timeout = tokio::time::sleep(std::time::Duration::from_secs(
             self.timeout.unwrap_or(default_timeout) as u64
         ));
+        tokio::pin!(timeout);
 
         let child = self.spawn_child()?;
         let cmd_output = self.read_output_until(child, "new", "test");
         let v: usize = loop {
             tokio::select! {
-                _ = timeout => {
+                _ = &mut timeout => {
                     eprintln!("Program timed out");
                     break 1;
                 }
@@ -204,8 +205,16 @@ mod codec {
         /// containing the pattern
         Output(String),
         /// Stop the server
-        Stop,
+        Control(String),
     }
+
+    pub enum Signal {
+        Kill,
+        Resume,
+        Pause,
+    }
+
+    pub type ControlSignal = tokio::sync::mpsc::Receiver<Signal>;
 
     impl ServerOp {
         /// Encode message ready for sent over UnixStream
@@ -224,9 +233,9 @@ mod codec {
                     encode(&mut buf, pattern);
                     buf
                 }
-                Stop => {
+                Control(sig) => {
                     buf.put_u8(b'X');
-                    encode(&mut buf, "");
+                    encode(&mut buf, sig);
                     buf
                 }
                 _ => {
@@ -250,7 +259,10 @@ mod codec {
                     let pattern = String::from_utf8_lossy(&decode(r).await?).to_string();
                     ServerOp::Output(pattern)
                 }
-                b'X' => ServerOp::Stop,
+                b'X' => {
+                    let sig = String::from_utf8_lossy(&decode(r).await?).to_string();
+                    ServerOp::Control(sig)
+                }
                 _ => {
                     todo!();
                 }
@@ -303,7 +315,7 @@ mod codec {
         let decoded_op = ServerOp::decode(&mut d.as_slice()).await?;
         assert_eq!(decoded_op, op);
 
-        let op = ServerOp::Stop;
+        let op = ServerOp::Control("SIGSTOP".into());
         let d = op.encode();
         let decoded_op = ServerOp::decode(&mut d.as_slice()).await?;
         assert_eq!(decoded_op, op);
@@ -332,6 +344,14 @@ mod socket {
         stream: Option<UnixStream>,
     }
 
+    fn remove_socket_file(s: &Path) -> Result<()> {
+        if s.exists() {
+            std::fs::remove_file(s)?;
+        }
+
+        Ok(())
+    }
+
     impl Server {
         async fn wait_for_client_stream(&mut self) -> Result<UnixStream> {
             info!("wait for new client");
@@ -339,14 +359,46 @@ mod socket {
 
             Ok(stream)
         }
+
+        async fn handle_requests(&mut self, op: codec::ServerOp) -> Result<()> {
+            use codec::ServerOp;
+
+            match op {
+                // Write `msg` into task's stdin if not empty.
+                ServerOp::Input(msg) => {
+                    info!("got input ({} bytes) from client.", msg.len());
+                    // let task = task.get_or_insert_with(|| create_task(program));
+                    // if !msg.is_empty() {
+                    //     task.write_stdin(&msg)?;
+                    // }
+                }
+                // Read task's stdout until the line matching the `pattern`
+                ServerOp::Output(pattern) => {
+                    info!("client asked for computed results");
+                    // if let Some(task) = task.as_mut() {
+                    //     let txt = task.read_stdout_until(&pattern).await?;
+                    //     codec::send_msg_encode(&mut client_stream, &txt).await?;
+                    // } else {
+                    //     bail!("Cannot interact with the task's stdout, as it is not started yet!");
+                    // }
+                }
+                ServerOp::Control(sig) => {
+                    info!("client sent control signal {:?}", sig);
+                    return Ok(());
+                }
+                _ => {
+                    todo!();
+                }
+            }
+
+            Ok(())
+        }
     }
 
     impl Drop for Server {
         // clean upunix socket file
         fn drop(&mut self) {
-            if self.socket_file.exists() {
-                let _ = std::fs::remove_file(&self.socket_file);
-            }
+            let _ = remove_socket_file(&self.socket_file);
         }
     }
 
@@ -378,33 +430,7 @@ mod socket {
                 // wait for client requests
                 let mut client_stream = self.wait_for_client_stream().await?;
                 while let Ok(op) = ServerOp::decode(&mut client_stream).await {
-                    match op {
-                        // Write `msg` into task's stdin if not empty.
-                        ServerOp::Input(msg) => {
-                            info!("got input ({} bytes) from client.", msg.len());
-                            // let task = task.get_or_insert_with(|| create_task(program));
-                            // if !msg.is_empty() {
-                            //     task.write_stdin(&msg)?;
-                            // }
-                        }
-                        // Read task's stdout until the line matching the `pattern`
-                        ServerOp::Output(pattern) => {
-                            info!("client ask for computed results");
-                            // if let Some(task) = task.as_mut() {
-                            //     let txt = task.read_stdout_until(&pattern).await?;
-                            //     codec::send_msg_encode(&mut client_stream, &txt).await?;
-                            // } else {
-                            //     bail!("Cannot interact with the task's stdout, as it is not started yet!");
-                            // }
-                        }
-                        ServerOp::Stop => {
-                            info!("client requests to stop computation server");
-                            return Ok(());
-                        }
-                        _ => {
-                            todo!();
-                        }
-                    }
+                    self.handle_requests(op).await?;
                 }
             }
 
@@ -464,7 +490,7 @@ mod client {
         /// Try to tell the background computation to stop
         pub async fn try_stop(&mut self) -> Result<()> {
             info!("Ask server to stop ...");
-            let op = codec::ServerOp::Stop;
+            let op = codec::ServerOp::Control("SIGKILL".into());
             self.send_op(op).await?;
 
             Ok(())
