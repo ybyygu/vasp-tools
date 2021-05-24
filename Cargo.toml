@@ -20,9 +20,11 @@ chrono = "0.4"
 gut = { version = "0.1.5", package = "gchemol-gut" }
 text_parser = { version = "0.2", package = "gchemol-parser" }
 rexpect = "0.4"
+libc = "0.2"
+shared_child = "0.3"
 
 [dev-dependencies]
-    
+
 [features]
 # for adhoc hacking
 adhoc = []
