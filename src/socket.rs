@@ -202,6 +202,7 @@ mod client {
 mod server {
     use super::*;
     use crate::interactive::Task;
+    use crate::process::PidFile;
     use std::process::{Child, Command};
 
     #[derive(Debug)]
@@ -290,15 +291,20 @@ mod server {
     }
 
     fn create_task(program: &Path) -> Task {
+        use crate::process::*;
+
         debug!("run program: {:?}", program);
         use std::process::{Command, Stdio};
 
+        // create child process in a new session, and write session id of the
+        // process group, so we can pause/resume/kill theses processes safely
         let child = Command::new(program)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .new_process_group()
             .spawn()
             .unwrap();
-        Task::new(child)
+        Task::new(child, true)
     }
 }
 // server:1 ends here

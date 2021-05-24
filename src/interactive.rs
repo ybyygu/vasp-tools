@@ -1,3 +1,7 @@
+// [[file:../vasp-tools.note::*docs][docs:1]]
+//! This mod is for VASP interactive calculations.
+// docs:1 ends here
+
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 
@@ -5,6 +9,7 @@ use std::path::{Path, PathBuf};
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*task][task:1]]
+use crate::process::PidFile;
 use rexpect::reader::{NBReader, ReadUntil};
 
 /// Struct for interactive communication with child process's standard input and
@@ -13,6 +18,7 @@ pub struct Task {
     child: std::process::Child,
     stream0: std::process::ChildStdin,
     stream1: NBReader,
+    pidfile: Option<PidFile>,
 }
 
 impl Task {
@@ -21,13 +27,22 @@ impl Task {
     /// # Panics
     ///
     /// * Will panic if stdin/stdout of child process not captured
-    pub fn new(mut child: std::process::Child) -> Self {
+    pub fn new(mut child: std::process::Child, create_pidfile: bool) -> Self {
         let stream0 = child.stdin.take().expect("no piped stdin");
         let stream1 = child.stdout.take().expect("no piped stdout");
+
+        let pidfile = if create_pidfile {
+            PidFile::new("vasp.pid".as_ref(), child.id())
+                .expect("Task's pidfile")
+                .into()
+        } else {
+            None
+        };
         Self {
             stream0,
-            stream1: NBReader::new(stream1, None),
+            pidfile,
             child,
+            stream1: NBReader::new(stream1, None),
         }
     }
 
@@ -85,7 +100,7 @@ fn test_task() {
         .spawn()
         .unwrap();
 
-    let mut task = Task::new(child);
+    let mut task = Task::new(child, false);
     task.write_stdin("test1\n").unwrap();
     let x = task.read_stdout_until("\n").unwrap();
     assert_eq!(x, "test1");

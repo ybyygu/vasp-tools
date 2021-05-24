@@ -39,7 +39,7 @@ pub struct PidFile {
 }
 
 impl PidFile {
-    fn create<P: AsRef<Path>>(path: P) -> Result<PidFile> {
+    fn create(path: &Path) -> Result<PidFile> {
         use fs2::*;
 
         let file = std::fs::OpenOptions::new()
@@ -54,7 +54,7 @@ impl PidFile {
 
         Ok(PidFile {
             file,
-            path: path.as_ref().to_owned(),
+            path: path.to_owned(),
         })
     }
 
@@ -64,9 +64,9 @@ impl PidFile {
     }
 
     /// Create a pidfile for process `pid`
-    pub fn new(path: &Path, pid: i32) -> Result<Self> {
+    pub fn new(path: &Path, pid: u32) -> Result<Self> {
         let mut pidfile = Self::create(path)?;
-        pidfile.write_pid(Pid::from_raw(pid));
+        pidfile.write_pid(Pid::from_raw(pid as i32));
 
         Ok(pidfile)
     }
