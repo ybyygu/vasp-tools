@@ -1,28 +1,32 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*core][core:1]]
 /// Manage process session
 #[derive(Debug)]
 pub struct Session {
-    /// Session ID
-    sid: Option<u32>,
-
     /// Arguments that will be passed to `program`
     rest: Vec<String>,
-
-    /// Job timeout in seconds
-    timeout: Option<u32>,
 
     /// The external command
     command: Command,
 
-    /// Stdin input bytes
-    stdin_bytes: Vec<u8>,
+    child: Option<Child>,
+}
 
-    cmd_output: Option<std::process::Output>,
+impl Session {
+    /// Create a new session.
+    pub fn new(program: &str) -> Self {
+        let command = Command::new(program);
+
+        Self {
+            command,
+            rest: vec![],
+            child: None,
+        }
+    }
 }
 // core:1 ends here
 
@@ -31,33 +35,38 @@ impl Session {
     /// send signal to child processes
     ///
     /// SIGINT, SIGTERM, SIGCONT, SIGSTOP
-    fn signal(&mut self, sig: &str) -> Result<()> {
-        if let Some(sid) = self.sid {
+    fn signal(&self, sig: &str) -> Result<()> {
+        if let Some(sid) = self.id() {
             signal_processes_by_session_id(sid, sig)?;
         } else {
-            debug!("process not started yet");
+            bail!("session not started yet");
         }
         Ok(())
     }
 
     /// Terminate child processes in a session.
-    pub fn terminate(&mut self) -> Result<()> {
+    pub fn terminate(&self) -> Result<()> {
         self.signal("SIGTERM")
     }
 
     /// Kill processes in a session.
-    pub fn kill(&mut self) -> Result<()> {
+    pub fn kill(&self) -> Result<()> {
         self.signal("SIGKILL")
     }
 
     /// Resume processes in a session.
-    pub fn resume(&mut self) -> Result<()> {
+    pub fn resume(&self) -> Result<()> {
         self.signal("SIGCONT")
     }
 
     /// Pause processes in a session.
-    pub fn pause(&mut self) -> Result<()> {
+    pub fn pause(&self) -> Result<()> {
         self.signal("SIGSTOP")
+    }
+
+    /// Return session id if child process started.
+    pub fn id(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|x| x.id())
     }
 }
 
@@ -90,42 +99,44 @@ fn signal_processes_by_session_id_alt(sid: u32, signal: &str) -> Result<()> {
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt};
 
 impl Session {
-    fn spawn_child(&mut self) -> Result<tokio::process::Child> {
+    fn spawn_child(&mut self) -> Result<()> {
         use crate::process::ProcessGroupExt;
         use std::process::Stdio;
 
+        // we want to interact with child process's stdin and stdout
         let child = self
             .command
             .new_process_group()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
+
         // the child process id while it is still running
-        self.sid = child.id();
+        self.child = child.into();
 
-        Ok(child)
+        Ok(())
     }
+}
 
-    async fn read_output_until(&self, mut child: tokio::process::Child, input: &str, pattern: &str) -> Result<String> {
-        child
-            .stdin
-            .take()
-            .context("child did not have a handle to stdin")?
-            .write_all(input.as_bytes())
-            .await
-            .context("Failed to write to stdin")?;
-        let stdout = child.stdout.take().context("child did not have a handle to stdout")?;
-        let mut reader = tokio::io::BufReader::new(stdout).lines();
+async fn read_output_until(mut child: Child, input: &str, pattern: &str) -> Result<String> {
+    child
+        .stdin
+        .take()
+        .context("child did not have a handle to stdin")?
+        .write_all(input.as_bytes())
+        .await
+        .context("Failed to write to stdin")?;
+    let stdout = child.stdout.take().context("child did not have a handle to stdout")?;
+    let mut reader = tokio::io::BufReader::new(stdout).lines();
 
-        tokio::spawn(async move {
-            let status = child.wait().await.expect("child process encountered an error");
-            eprintln!("child status was: {}", status);
-        });
+    tokio::spawn(async move {
+        let status = child.wait().await.expect("child process encountered an error");
+        eprintln!("child status was: {}", status);
+    });
 
-        loop {
-            let x = read_until(&mut reader, pattern).await?;
-            break Ok(x);
-        }
+    loop {
+        let x = read_until(&mut reader, pattern).await?;
+        break Ok(x);
     }
 }
 
@@ -141,52 +152,6 @@ async fn read_until<R: AsyncBufRead + Unpin>(reader: &mut tokio::io::Lines<R>, p
     bail!("xx");
 }
 // output:1 ends here
-
-// [[file:../vasp-tools.note::*core][core:1]]
-impl Session {
-    async fn start(&mut self) -> Result<()> {
-        // user interruption
-        let ctrl_c = tokio::signal::ctrl_c();
-
-        // running timeout for 2 days
-        let default_timeout = 3600 * 2;
-        let timeout = tokio::time::sleep(std::time::Duration::from_secs(
-            self.timeout.unwrap_or(default_timeout) as u64
-        ));
-        tokio::pin!(timeout);
-
-        let child = self.spawn_child()?;
-        let cmd_output = self.read_output_until(child, "new", "test");
-        let v: usize = loop {
-            tokio::select! {
-                _ = &mut timeout => {
-                    eprintln!("Program timed out");
-                    break 1;
-                }
-                _ = ctrl_c => {
-                    eprintln!("User interruption");
-                    break 1;
-                }
-                o = cmd_output => {
-                    println!("Program completed");
-                    let cmd_output = o?;
-                    break 0;
-                }
-            }
-        };
-
-        if v == 1 {
-            info!("program was interrupted.");
-            self.kill()?;
-        } else {
-            info!("checking orphaned processes ...");
-            self.kill()?;
-        }
-
-        Ok(())
-    }
-}
-// core:1 ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
 mod codec {
@@ -215,7 +180,7 @@ mod codec {
         Pause,
     }
 
-    pub type ControlSignal = tokio::sync::mpsc::Receiver<Signal>;
+    pub type SharedTask = std::sync::Arc<std::sync::Mutex<Session>>;
 
     impl ServerOp {
         /// Encode message ready for sent over UnixStream
@@ -404,22 +369,26 @@ mod socket {
 
         /// Run the `script_file` and serve the client interactions with it
         pub async fn run_and_serve(&mut self, program: &Path) -> Result<()> {
-            use codec::ServerOp;
+            use std::sync::{Arc, Mutex};
 
+            // state will be shared with different tasks
+            let db = Arc::new(Mutex::new(Session::new("test")));
             loop {
                 // wait for client requests
                 let mut client_stream = self.wait_for_client_stream().await?;
                 // spawn a new task for each client
-                tokio::spawn(async move { handle_request(client_stream).await });
+                let db = db.clone();
+                tokio::spawn(async move { handle_client_requests(client_stream, db).await });
             }
 
             Ok(())
         }
     }
 
-    async fn handle_request(mut client_stream: UnixStream) {
+    async fn handle_client_requests(mut client_stream: UnixStream, task: codec::SharedTask) {
         use codec::ServerOp;
 
+        // while let Some(op) = rx.recv().await {
         while let Ok(op) = ServerOp::decode(&mut client_stream).await {
             match op {
                 // Write `msg` into task's stdin if not empty.
@@ -626,18 +595,6 @@ mod client_cli {
 // client cli:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
-pub use server_cli::*;
 pub use client_cli::*;
-
-impl Session {
-    /// Run command with session manager.
-    pub fn run(mut self) -> Result<std::process::Output> {
-        tokio::runtime::Runtime::new()
-            .context("tokio runtime failure")?
-            .block_on(self.start())?;
-
-        // self.cmd_output.take().ok_or(format_err!("no cmd output"))
-        todo!();
-    }
-}
+pub use server_cli::*;
 // pub:1 ends here
