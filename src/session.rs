@@ -205,11 +205,12 @@ mod codec {
         /// containing the pattern
         Output(String),
         /// Stop the server
-        Control(String),
+        Control(Signal),
     }
 
+    #[derive(Debug, Eq, PartialEq, Clone)]
     pub enum Signal {
-        Kill,
+        Quit,
         Resume,
         Pause,
     }
@@ -235,6 +236,11 @@ mod codec {
                 }
                 Control(sig) => {
                     buf.put_u8(b'X');
+                    let sig = match sig {
+                        Signal::Quit => "SIGTERM",
+                        Signal::Resume => "SIGCONT",
+                        Signal::Pause => "SIGSTOP",
+                    };
                     encode(&mut buf, sig);
                     buf
                 }
@@ -261,6 +267,12 @@ mod codec {
                 }
                 b'X' => {
                     let sig = String::from_utf8_lossy(&decode(r).await?).to_string();
+                    let sig = match sig.as_str() {
+                        "SIGTERM" => Signal::Quit,
+                        "SIGCONT" => Signal::Resume,
+                        "SIGSTOP" => Signal::Pause,
+                        _ => todo!(),
+                    };
                     ServerOp::Control(sig)
                 }
                 _ => {
@@ -315,7 +327,7 @@ mod codec {
         let decoded_op = ServerOp::decode(&mut d.as_slice()).await?;
         assert_eq!(decoded_op, op);
 
-        let op = ServerOp::Control("SIGSTOP".into());
+        let op = ServerOp::Control(Signal::Quit);
         let d = op.encode();
         let decoded_op = ServerOp::decode(&mut d.as_slice()).await?;
         assert_eq!(decoded_op, op);
@@ -353,45 +365,15 @@ mod socket {
     }
 
     impl Server {
+        async fn handle_contrl_signal(&self) -> Result<()> {
+            todo!()
+        }
+
         async fn wait_for_client_stream(&mut self) -> Result<UnixStream> {
             info!("wait for new client");
             let (stream, _) = self.listener.accept().await.context("accept new unix socket client")?;
 
             Ok(stream)
-        }
-
-        async fn handle_requests(&mut self, op: codec::ServerOp) -> Result<()> {
-            use codec::ServerOp;
-
-            match op {
-                // Write `msg` into task's stdin if not empty.
-                ServerOp::Input(msg) => {
-                    info!("got input ({} bytes) from client.", msg.len());
-                    // let task = task.get_or_insert_with(|| create_task(program));
-                    // if !msg.is_empty() {
-                    //     task.write_stdin(&msg)?;
-                    // }
-                }
-                // Read task's stdout until the line matching the `pattern`
-                ServerOp::Output(pattern) => {
-                    info!("client asked for computed results");
-                    // if let Some(task) = task.as_mut() {
-                    //     let txt = task.read_stdout_until(&pattern).await?;
-                    //     codec::send_msg_encode(&mut client_stream, &txt).await?;
-                    // } else {
-                    //     bail!("Cannot interact with the task's stdout, as it is not started yet!");
-                    // }
-                }
-                ServerOp::Control(sig) => {
-                    info!("client sent control signal {:?}", sig);
-                    return Ok(());
-                }
-                _ => {
-                    todo!();
-                }
-            }
-
-            Ok(())
         }
     }
 
@@ -423,18 +405,51 @@ mod socket {
         /// Run the `script_file` and serve the client interactions with it
         pub async fn run_and_serve(&mut self, program: &Path) -> Result<()> {
             use codec::ServerOp;
-            // use std::io::BufRead;
 
-            // let mut task = None;
             loop {
                 // wait for client requests
                 let mut client_stream = self.wait_for_client_stream().await?;
-                while let Ok(op) = ServerOp::decode(&mut client_stream).await {
-                    self.handle_requests(op).await?;
-                }
+                // spawn a new task for each client
+                tokio::spawn(async move { handle_request(client_stream).await });
             }
 
             Ok(())
+        }
+    }
+
+    async fn handle_request(mut client_stream: UnixStream) {
+        use codec::ServerOp;
+
+        while let Ok(op) = ServerOp::decode(&mut client_stream).await {
+            match op {
+                // Write `msg` into task's stdin if not empty.
+                ServerOp::Input(msg) => {
+                    info!("got input ({} bytes) from client.", msg.len());
+                    // let task = task.get_or_insert_with(|| create_task(program));
+                    // if !msg.is_empty() {
+                    //     task.write_stdin(&msg)?;
+                    // }
+                }
+                // Read task's stdout until the line matching the `pattern`
+                ServerOp::Output(pattern) => {
+                    info!("client asked for computed results");
+                    codec::send_msg_encode(&mut client_stream, "test").await.unwrap();
+
+                    // if let Some(task) = task.as_mut() {
+                    //     let txt = task.read_stdout_until(&pattern).await?;
+                    //     codec::send_msg_encode(&mut client_stream, &txt).await?;
+                    // } else {
+                    //     bail!("Cannot interact with the task's stdout, as it is not started yet!");
+                    // }
+                }
+                ServerOp::Control(sig) => {
+                    info!("client sent control signal {:?}", sig);
+                    return;
+                }
+                _ => {
+                    todo!();
+                }
+            }
         }
     }
 }
@@ -488,9 +503,30 @@ mod client {
         }
 
         /// Try to tell the background computation to stop
-        pub async fn try_stop(&mut self) -> Result<()> {
-            info!("Ask server to stop ...");
-            let op = codec::ServerOp::Control("SIGKILL".into());
+        pub async fn try_quit(&mut self) -> Result<()> {
+            self.send_op_control(codec::Signal::Quit).await?;
+
+            Ok(())
+        }
+
+        /// Try to tell the background computation to stop
+        pub async fn try_pause(&mut self) -> Result<()> {
+            self.send_op_control(codec::Signal::Pause).await?;
+
+            Ok(())
+        }
+
+        /// Try to tell the background computation to stop
+        pub async fn try_resume(&mut self) -> Result<()> {
+            self.send_op_control(codec::Signal::Resume).await?;
+
+            Ok(())
+        }
+
+        /// Send control signal to server
+        async fn send_op_control(&mut self, sig: codec::Signal) -> Result<()> {
+            info!("Send control signal {:?}", sig);
+            let op = codec::ServerOp::Control(sig);
             self.send_op(op).await?;
 
             Ok(())
@@ -533,9 +569,17 @@ mod server_cli {
         let args = Cli::from_args();
         args.verbose.setup_logger();
 
-        socket::Server::create(&args.socket_file)?
-            .run_and_serve(&args.program)
-            .await?;
+        let mut server = socket::Server::create(&args.socket_file)?;
+        // watch for user interruption
+        let ctrl_c = tokio::signal::ctrl_c();
+        tokio::select! {
+            _ = ctrl_c => {
+                info!("User interrupted. Shutting down ...");
+            },
+            _ = server.run_and_serve(&args.program) => {
+                todo!();
+            }
+        }
 
         Ok(())
     }
@@ -572,6 +616,9 @@ mod client_cli {
         let mut client = client::Client::connect(&args.socket_file).await?;
         client.write_input("xx").await?;
         client.read_expect("test").await?;
+        client.try_pause().await?;
+        client.try_resume().await?;
+        client.try_quit().await?;
 
         Ok(())
     }
