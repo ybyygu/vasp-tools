@@ -177,3 +177,139 @@ impl ProcessHandle {
     }
 }
 // process handler:1 ends here
+
+// [[file:../vasp-tools.note::*stdout][stdout:2]]
+use tokio::io;
+use tokio::process::{ChildStdin, ChildStdout};
+
+type ReturnOutput = tokio::sync::mpsc::Sender<String>;
+type ReadOutput = tokio::sync::mpsc::Receiver<String>;
+type WriteInput = tokio::sync::mpsc::Receiver<String>;
+
+pub struct StdoutReader {
+    reader: tokio::io::Lines<io::BufReader<ChildStdout>>,
+}
+
+impl StdoutReader {
+    pub fn new(stdout: ChildStdout) -> Self {
+        use io::AsyncBufReadExt;
+
+        let reader = io::BufReader::new(stdout).lines();
+        Self { reader }
+    }
+
+    /// Read stdout until finding a line containing the `pattern`
+    pub async fn read_until(&mut self, pattern: &str) -> Result<String> {
+        use io::AsyncBufRead;
+
+        let mut text = String::new();
+        while let Some(line) = self.reader.next_line().await? {
+            writeln!(&mut text, "{}", line)?;
+            if dbg!(line).contains(&pattern) {
+                return Ok(text);
+            }
+        }
+        bail!("expected pattern not found!");
+    }
+}
+// stdout:2 ends here
+
+// [[file:../vasp-tools.note::*stdin][stdin:1]]
+pub struct StdinWriter {
+    stdin: ChildStdin,
+}
+
+impl StdinWriter {
+    pub fn new(stdin: ChildStdin) -> Self {
+        Self { stdin }
+    }
+
+    /// Write `input` into self's stdin
+    pub async fn write(&mut self, input: &str) -> Result<()> {
+        use io::AsyncWriteExt;
+
+        self.stdin.write_all(dbg!(input).as_bytes()).await?;
+        self.stdin.flush().await?;
+
+        Ok(())
+    }
+}
+// stdin:1 ends here
+
+// [[file:../vasp-tools.note::*session][session:1]]
+mod session {
+    use gut::prelude::*;
+    use std::process::ExitStatus;
+    use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+    use tokio::sync::mpsc;
+    use tokio::task::JoinHandle;
+
+    /// Manage process session
+    #[derive(Debug)]
+    struct Session {
+        command: Command,
+        stdin: Option<ChildStdin>,
+        stdout: Option<ChildStdout>,
+        run_handler: Option<JoinHandle<Option<ExitStatus>>>,
+        // session id
+        id: Option<u32>,
+    }
+
+    impl Session {
+        fn new(command: Command) -> Self {
+            Self {
+                command,
+                id: None,
+                stdin: None,
+                stdout: None,
+                run_handler: None,
+            }
+        }
+
+        fn spawn(&mut self) -> Result<()> {
+            use crate::process::ProcessGroupExt;
+            use std::process::Stdio;
+
+            // we want to interact with child process's stdin and stdout
+            let mut child = self
+                .command
+                .new_process_group()
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()?;
+
+            self.stdin = child.stdin.take();
+            self.stdout = child.stdout.take();
+            self.id = child.id();
+
+            let h = tokio::spawn(async move {
+                let status = child.wait().await.ok()?;
+                Some(status)
+            });
+            self.run_handler = Some(h);
+
+            Ok(())
+        }
+
+        async fn write_stdin(&mut self, input: &str) -> Result<()> {
+            todo!()
+        }
+
+        async fn read_stdout_until_matching_line(&mut self, pattern: &str) -> Result<()> {
+            todo!()
+        }
+
+        pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
+            todo!()
+        }
+    }
+
+    // #[tokio::test]
+    // async fn test_session_communicate() -> Result<()> {
+    //     let mut s = Session::new()?;
+    //     let o = s.interact("", "next line").await?;
+
+    //     Ok(())
+    // }
+}
+// session:1 ends here

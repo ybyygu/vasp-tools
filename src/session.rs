@@ -149,9 +149,72 @@ async fn read_until<R: AsyncBufRead + Unpin>(reader: &mut tokio::io::Lines<R>, p
         }
     }
 
-    bail!("xx");
+    bail!("expected pattern not found!");
 }
 // output:1 ends here
+
+// [[file:../vasp-tools.note::*test][test:1]]
+use std::marker::Unpin;
+use std::sync::{Arc, Mutex};
+
+#[tokio::test]
+async fn test_tokio_child() -> Result<()> {
+    use std::process::Stdio;
+    use tokio::io::{BufReader, BufWriter};
+
+    let mut tr = Command::new("tr")
+        .arg("a-z")
+        .arg("A-Z")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    let mut stdin = tr.stdin.take().unwrap();
+    let w = tokio::spawn(async move {
+        write_buffer(&mut stdin, "test\n\n\n").await.unwrap();
+        write_buffer(&mut stdin, "test2\n\n\n").await.unwrap();
+    });
+
+    let stdout = tr.stdout.take().unwrap();
+    let mut lines = BufReader::new(stdout).lines();
+    let r = tokio::spawn(async move {
+        let x = read_line_until(&mut lines, "2").await.unwrap();
+        dbg!(x);
+    });
+
+    // Ensure the child process is spawned in the runtime so it can
+    // make progress on its own while we await for any output.
+    let run_proc = tokio::spawn(async move {
+        let status = tr.wait().await.expect("child process encountered an error");
+        eprintln!("child status was: {}", status);
+    });
+
+    let _ = tokio::join!(w, r, run_proc);
+
+    Ok(())
+}
+
+// Write `data` into buffer
+async fn write_buffer<W: AsyncWriteExt + Unpin>(buffer: &mut W, data: &str) -> Result<()> {
+    buffer.write_all(dbg!(data).as_bytes()).await?;
+    buffer.flush().await?;
+
+    Ok(())
+}
+
+// Read from `reader` until the line containing the `pattern`
+async fn read_line_until<R: AsyncBufRead + Unpin>(reader: &mut tokio::io::Lines<R>, pattern: &str) -> Result<String> {
+    let mut text = String::new();
+    while let Some(line) = reader.next_line().await? {
+        writeln!(&mut text, "{}", line)?;
+        if dbg!(line).contains(pattern) {
+            return Ok(text);
+        }
+    }
+
+    bail!("expected pattern not found!");
+}
+// test:1 ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
 mod codec {
