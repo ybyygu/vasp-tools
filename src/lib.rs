@@ -50,7 +50,8 @@ mod cli {
 
         let vasp_program = &args.program;
         if args.interactive {
-            crate::socket::Server::create(&args.socket_file)?.run_and_serve(vasp_program)?;
+            // crate::socket::server::Server::create(&args.socket_file)?.run_and_serve(vasp_program)?;
+            todo!();
         } else {
             // NOTE: we need handle duct::IntoExecutablePath trick. In duct
             // crate, the Path has different semantics with `String`: a program
@@ -83,9 +84,5 @@ mod cli {
 // cli:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
-pub use crate::cli::run_vasp_enter_main;
-pub use crate::socket::client_enter_main;
-
-// FIXME: remove
-pub use crate::session::*;
+pub use crate::socket::*;
 // pub:1 ends here
