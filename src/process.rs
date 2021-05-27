@@ -182,37 +182,205 @@ impl ProcessHandle {
 use tokio::io;
 use tokio::process::{ChildStdin, ChildStdout};
 
-type ReturnOutput = tokio::sync::mpsc::Sender<String>;
 type ReadOutput = tokio::sync::mpsc::Receiver<String>;
+type ReadOutputTx = tokio::sync::mpsc::Sender<String>;
 type WriteInput = tokio::sync::mpsc::Receiver<String>;
+type WriteInputTx = tokio::sync::mpsc::Sender<String>;
+// The part of stdout read-in
+type ReadInOutput = tokio::sync::watch::Receiver<String>;
+type ReadInOutputTx = tokio::sync::watch::Sender<String>;
 
 pub struct StdoutReader {
-    reader: tokio::io::Lines<io::BufReader<ChildStdout>>,
+    // reader: tokio::io::Lines<io::BufReader<ChildStdout>>,
+    // reader: ChildStdout,
+    reader: io::BufReader<ChildStdout>,
 }
 
 impl StdoutReader {
     pub fn new(stdout: ChildStdout) -> Self {
         use io::AsyncBufReadExt;
 
-        let reader = io::BufReader::new(stdout).lines();
+        // let reader = io::BufReader::new(stdout).lines();
+        let reader = io::BufReader::new(stdout);
         Self { reader }
     }
 
     /// Read stdout until finding a line containing the `pattern`
     pub async fn read_until(&mut self, pattern: &str) -> Result<String> {
-        use io::AsyncBufRead;
+        use io::AsyncBufReadExt;
 
+        info!("read stdout until finding pattern: {:?}", pattern);
+        // let mut text = String::new();
+        // while let Some(line) = self.reader.next_line().await? {
+        //     info!("read in line: {:?}", line);
+        //     writeln!(&mut text, "{}", line)?;
+        //     if line.contains(&pattern) {
+        //         info!("found pattern: {:?}", pattern);
+        //         return Ok(text);
+        //     }
+        // }
         let mut text = String::new();
-        while let Some(line) = self.reader.next_line().await? {
-            writeln!(&mut text, "{}", line)?;
-            if dbg!(line).contains(&pattern) {
-                return Ok(text);
+        loop {
+            dbg!("xxidir");
+            let size = self.reader.read_line(&mut text).await?;
+            dbg!("xxidir");
+            if size == 0 {
+                break;
             }
+            return Ok(text);
         }
         bail!("expected pattern not found!");
     }
 }
+
+mod stdout {
+    use gut::prelude::*;
+    use std::io::{self, prelude::*};
+    use std::process::ChildStdout;
+
+    pub struct StdoutReader {
+        reader: io::Lines<io::BufReader<ChildStdout>>,
+    }
+
+    impl StdoutReader {
+        pub fn new(stdout: ChildStdout) -> Self {
+            let reader = io::BufReader::new(stdout).lines();
+            Self { reader }
+        }
+
+        /// Read stdout until finding a line containing the `pattern`
+        pub fn read_until(&mut self, pattern: &str) -> Result<String> {
+            info!("read stdout until finding pattern: {:?}", pattern);
+            let mut text = String::new();
+            while let Some(line) = self.reader.next() {
+                let line = line.context("invalid encoding?")?;
+                info!("read in line: {:?}", line);
+                writeln!(&mut text, "{}", line)?;
+                if line.contains(&pattern) {
+                    info!("found pattern: {:?}", pattern);
+                    return Ok(text);
+                }
+            }
+            bail!("expected pattern not found!");
+        }
+    }
+}
 // stdout:2 ends here
+
+// [[file:../vasp-tools.note::*output][output:1]]
+mod reader {
+    use gut::prelude::*;
+    use std::io::{self, prelude::*};
+    use std::process::ChildStdout;
+
+    // The part of stdout read-in
+    type ReadInOutput = tokio::sync::watch::Receiver<String>;
+    type ReadInOutputTx = tokio::sync::watch::Sender<String>;
+
+    pub struct StdoutReader {
+        stdout: Option<ChildStdout>,
+        rx: Option<ReadInOutput>,
+        tx: Option<ReadInOutputTx>,
+    }
+
+    impl StdoutReader {
+        pub fn new(stdout: ChildStdout) -> Self {
+            info!("new stdout reader");
+            let (tx, rx) = tokio::sync::watch::channel("".to_string());
+            Self {
+                stdout: stdout.into(),
+                tx: tx.into(),
+                rx: rx.into(),
+            }
+        }
+
+        /// Read stdout until finding a line containing the `pattern`
+        pub async fn read_until(&mut self, pattern: &str) -> Result<String> {
+            info!("read stdout until finding pattern: {:?}", pattern);
+            let mut stdout = self.stdout.take().unwrap();
+
+            // spawn the task for read stdout only once
+            if let Some(tx) = self.tx.take() {
+                read_child_stream_until(stdout, pattern.into(), tx).await?;
+            }
+            let mut rx = self.rx.clone().unwrap();
+            // return the output already read in from child process's stdout
+            tokio::spawn(async move {
+                if rx.changed().await.is_ok() {
+                    let out = rx.borrow().to_string();
+                    debug!("read in stdout {:?} bytes", out.len());
+                    dbg!(out);
+                }
+            });
+            Ok("test".into())
+        }
+    }
+
+    // https://stackoverflow.com/a/34616729
+    /// Pipe streams are blocking, we need separate threads to monitor them without blocking the primary thread.
+    async fn read_child_stream_until<R: Read + Send + 'static>(
+        mut stream: R,
+        pattern: String,
+        tx: ReadInOutputTx,
+    ) -> Result<()> {
+        tokio::spawn(async move {
+            info!("read stream for pattern: {}", pattern);
+            let mut out = vec![];
+            loop {
+                debug!("read in data byte by byte");
+                let mut buf = [0];
+                match stream.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(1) => out.push(dbg!(buf[0])),
+                    Err(e) => {
+                        break;
+                        dbg!(e);
+                    }
+                    _ => todo!(),
+                }
+                let msg = String::from_utf8_lossy(&out);
+                if msg.contains(&pattern) {
+                    tx.send(msg.to_string()).unwrap();
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    use std::sync::{Arc, Mutex};
+    type SharedData = Arc<Mutex<Vec<u8>>>;
+    // https://stackoverflow.com/a/34616729
+    /// Pipe streams are blocking, we need separate threads to monitor them without blocking the primary thread.
+    fn read_child_stream_<R: Read + Send + 'static>(mut stream: R) -> SharedData {
+        let out = Arc::new(Mutex::new(Vec::new()));
+        let vec = out.clone();
+        std::thread::Builder::new()
+            .name("child_stream_to_vec".into())
+            .spawn(move || loop {
+                let mut buf = [0];
+                match stream.read(&mut buf) {
+                    Err(err) => {
+                        dbg!(err);
+                        break;
+                    }
+                    Ok(got) => {
+                        if got == 0 {
+                            break;
+                        } else if got == 1 {
+                            vec.lock().expect("!lock").push(buf[0])
+                        } else {
+                            println!("{}] Unexpected number of bytes: {}", line!(), got);
+                            break;
+                        }
+                    }
+                }
+            })
+            .expect("!thread");
+        out
+    }
+}
+// output:1 ends here
 
 // [[file:../vasp-tools.note::*stdin][stdin:1]]
 pub struct StdinWriter {
@@ -228,88 +396,38 @@ impl StdinWriter {
     pub async fn write(&mut self, input: &str) -> Result<()> {
         use io::AsyncWriteExt;
 
+        debug!("will write {:} bytes into stdin", input.len());
         self.stdin.write_all(dbg!(input).as_bytes()).await?;
         self.stdin.flush().await?;
+        debug!("wrote stdin done");
 
         Ok(())
     }
 }
-// stdin:1 ends here
 
-// [[file:../vasp-tools.note::*session][session:1]]
-mod session {
+mod stdin {
     use gut::prelude::*;
-    use std::process::ExitStatus;
-    use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-    use tokio::sync::mpsc;
-    use tokio::task::JoinHandle;
+    use std::process::ChildStdin;
 
-    /// Manage process session
-    #[derive(Debug)]
-    struct Session {
-        command: Command,
-        stdin: Option<ChildStdin>,
-        stdout: Option<ChildStdout>,
-        run_handler: Option<JoinHandle<Option<ExitStatus>>>,
-        // session id
-        id: Option<u32>,
+    pub struct StdinWriter {
+        stdin: ChildStdin,
     }
 
-    impl Session {
-        fn new(command: Command) -> Self {
-            Self {
-                command,
-                id: None,
-                stdin: None,
-                stdout: None,
-                run_handler: None,
-            }
+    impl StdinWriter {
+        pub fn new(stdin: ChildStdin) -> Self {
+            Self { stdin }
         }
 
-        fn spawn(&mut self) -> Result<()> {
-            use crate::process::ProcessGroupExt;
-            use std::process::Stdio;
+        /// Write `input` into self's stdin
+        pub fn write(&mut self, input: &str) -> Result<()> {
+            use std::io::prelude::*;
 
-            // we want to interact with child process's stdin and stdout
-            let mut child = self
-                .command
-                .new_process_group()
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()?;
-
-            self.stdin = child.stdin.take();
-            self.stdout = child.stdout.take();
-            self.id = child.id();
-
-            let h = tokio::spawn(async move {
-                let status = child.wait().await.ok()?;
-                Some(status)
-            });
-            self.run_handler = Some(h);
+            debug!("will write {:} bytes into stdin", input.len());
+            self.stdin.write_all(dbg!(input).as_bytes())?;
+            self.stdin.flush()?;
 
             Ok(())
         }
-
-        async fn write_stdin(&mut self, input: &str) -> Result<()> {
-            todo!()
-        }
-
-        async fn read_stdout_until_matching_line(&mut self, pattern: &str) -> Result<()> {
-            todo!()
-        }
-
-        pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
-            todo!()
-        }
     }
-
-    // #[tokio::test]
-    // async fn test_session_communicate() -> Result<()> {
-    //     let mut s = Session::new()?;
-    //     let o = s.interact("", "next line").await?;
-
-    //     Ok(())
-    // }
 }
-// session:1 ends here
+// stdin:1 ends here

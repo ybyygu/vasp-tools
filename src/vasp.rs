@@ -108,7 +108,7 @@ pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
 /// Handle VASP POSCAR file
 pub mod poscar {
     use super::*;
-    
+
     // read scaled positions from POSCAR
     fn get_scaled_positions_from_poscar(path: &Path) -> Result<String> {
         let s = gut::fs::read_file(path)?;

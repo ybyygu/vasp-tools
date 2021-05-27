@@ -1,34 +1,85 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
-use tokio::process::{Child, Command};
 // imports:1 ends here
 
-// [[file:../vasp-tools.note::*core][core:1]]
-/// Manage process session
-#[derive(Debug)]
+// [[file:../vasp-tools.note::*core/rexpect][core/rexpect:1]]
+use rexpect::session::PtySession;
+use std::process::{ChildStdin, ChildStdout, Command};
+
+/// Return child processes in a session group
 pub struct Session {
-    /// Arguments that will be passed to `program`
-    rest: Vec<String>,
-
-    /// The external command
-    command: Command,
-
-    child: Option<Child>,
+    command: Option<Command>,
+    session: Option<PtySession>,
 }
 
 impl Session {
-    /// Create a new session.
-    pub fn new(program: &str) -> Self {
-        let command = Command::new(program);
-
+    /// Create a new session for running `command`
+    pub fn new(command: Command) -> Self {
         Self {
-            command,
-            rest: vec![],
-            child: None,
+            command: command.into(),
+            session: None,
         }
     }
+
+    /// Return child process's session ID, useful for killing all child
+    /// processes using `pkill` command.
+    pub fn id(&self) -> Option<u32> {
+        let sid = self.session.as_ref()?.process.child_pid.as_raw();
+
+        Some(sid as u32)
+    }
+
+    /// Interact with child process's stdin using `input` and return stdout
+    /// read-in until the line matching `read_pattern`
+    pub fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
+        use rexpect::ReadUntil;
+
+        // create a new session for the first time
+        if self.session.is_none() {
+            let command = self.command.take().unwrap();
+            self.session = create_new_session(command)?.into();
+            info!("start child process in new session: {:?}", self.id());
+        }
+        let s = self.session.as_mut().expect("rexpect session");
+
+        trace!("send input for child process's stdin");
+        s.send_line(input)
+            .map_err(|e| format_err!("send input error: {:?}", e))?;
+
+        trace!("send read pattern for child process's stdout");
+        let (x, _) = s
+            .exp_any(vec![ReadUntil::String(read_pattern.into()), ReadUntil::EOF])
+            .map_err(|e| format_err!("read stdout error: {:?}", e))?;
+        return Ok(x);
+
+        bail!("invalid stdin/stdout!");
+    }
 }
-// core:1 ends here
+
+/// Spawn child process in a new session
+fn create_new_session(command: Command) -> Result<PtySession> {
+    use rexpect::session::spawn_command;
+
+    let session = spawn_command(command, None).map_err(|e| format_err!("spawn command error: {:?}", e))?;
+
+    Ok(session)
+}
+
+#[test]
+fn test_session_interact() -> Result<()> {
+    gut::cli::setup_logger_for_test();
+
+    let sh = std::process::Command::new("tests/files/interactive-job.sh");
+    let mut s = Session::new(sh);
+
+    let o = s.interact("test1\n", "POSITIONS: reading from stdin")?;
+    assert!(o.contains("mag=     2.2094"));
+    let o = s.interact("test1\n", "POSITIONS: reading from stdin")?;
+    assert!(o.contains("mag=     2.3094"));
+
+    Ok(())
+}
+// core/rexpect:1 ends here
 
 // [[file:../vasp-tools.note::*signal][signal:1]]
 impl Session {
@@ -63,11 +114,6 @@ impl Session {
     pub fn pause(&self) -> Result<()> {
         self.signal("SIGSTOP")
     }
-
-    /// Return session id if child process started.
-    pub fn id(&self) -> Option<u32> {
-        self.child.as_ref().and_then(|x| x.id())
-    }
 }
 
 /// Call `pkill` to send signal to related processes
@@ -95,134 +141,39 @@ fn signal_processes_by_session_id_alt(sid: u32, signal: &str) -> Result<()> {
 }
 // signal:1 ends here
 
-// [[file:../vasp-tools.note::*output][output:1]]
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt};
+// [[file:../vasp-tools.note::*drop][drop:1]]
+impl Drop for Session {
+    fn drop(&mut self) {
+        if let Some((sid, status)) = self.id().zip(self.status()) {
+            dbg!(sid, status);
+            // self.terminate();
+        }
+    }
+}
 
 impl Session {
-    fn spawn_child(&mut self) -> Result<()> {
-        use crate::process::ProcessGroupExt;
-        use std::process::Stdio;
-
-        // we want to interact with child process's stdin and stdout
-        let child = self
-            .command
-            .new_process_group()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()?;
-
-        // the child process id while it is still running
-        self.child = child.into();
-
-        Ok(())
+    fn status(&self) -> Option<rexpect::process::wait::WaitStatus> {
+        let status = self.session.as_ref()?.process.status()?;
+        status.into()
     }
 }
-
-async fn read_output_until(mut child: Child, input: &str, pattern: &str) -> Result<String> {
-    child
-        .stdin
-        .take()
-        .context("child did not have a handle to stdin")?
-        .write_all(input.as_bytes())
-        .await
-        .context("Failed to write to stdin")?;
-    let stdout = child.stdout.take().context("child did not have a handle to stdout")?;
-    let mut reader = tokio::io::BufReader::new(stdout).lines();
-
-    tokio::spawn(async move {
-        let status = child.wait().await.expect("child process encountered an error");
-        eprintln!("child status was: {}", status);
-    });
-
-    loop {
-        let x = read_until(&mut reader, pattern).await?;
-        break Ok(x);
-    }
-}
-
-async fn read_until<R: AsyncBufRead + Unpin>(reader: &mut tokio::io::Lines<R>, pattern: &str) -> Result<String> {
-    let mut text = String::new();
-    while let Some(line) = reader.next_line().await? {
-        writeln!(&mut text, "{}", line)?;
-        if line.starts_with(pattern) {
-            return Ok(text);
-        }
-    }
-
-    bail!("expected pattern not found!");
-}
-// output:1 ends here
-
-// [[file:../vasp-tools.note::*test][test:1]]
-use std::marker::Unpin;
-use std::sync::{Arc, Mutex};
-
-#[tokio::test]
-async fn test_tokio_child() -> Result<()> {
-    use std::process::Stdio;
-    use tokio::io::{BufReader, BufWriter};
-
-    let mut tr = Command::new("tr")
-        .arg("a-z")
-        .arg("A-Z")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
-
-    let mut stdin = tr.stdin.take().unwrap();
-    let w = tokio::spawn(async move {
-        write_buffer(&mut stdin, "test\n\n\n").await.unwrap();
-        write_buffer(&mut stdin, "test2\n\n\n").await.unwrap();
-    });
-
-    let stdout = tr.stdout.take().unwrap();
-    let mut lines = BufReader::new(stdout).lines();
-    let r = tokio::spawn(async move {
-        let x = read_line_until(&mut lines, "2").await.unwrap();
-        dbg!(x);
-    });
-
-    // Ensure the child process is spawned in the runtime so it can
-    // make progress on its own while we await for any output.
-    let run_proc = tokio::spawn(async move {
-        let status = tr.wait().await.expect("child process encountered an error");
-        eprintln!("child status was: {}", status);
-    });
-
-    let _ = tokio::join!(w, r, run_proc);
-
-    Ok(())
-}
-
-// Write `data` into buffer
-async fn write_buffer<W: AsyncWriteExt + Unpin>(buffer: &mut W, data: &str) -> Result<()> {
-    buffer.write_all(dbg!(data).as_bytes()).await?;
-    buffer.flush().await?;
-
-    Ok(())
-}
-
-// Read from `reader` until the line containing the `pattern`
-async fn read_line_until<R: AsyncBufRead + Unpin>(reader: &mut tokio::io::Lines<R>, pattern: &str) -> Result<String> {
-    let mut text = String::new();
-    while let Some(line) = reader.next_line().await? {
-        writeln!(&mut text, "{}", line)?;
-        if dbg!(line).contains(pattern) {
-            return Ok(text);
-        }
-    }
-
-    bail!("expected pattern not found!");
-}
-// test:1 ends here
+// drop:1 ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
+/// Shared codes for both server and client sides
 mod codec {
     use super::*;
     use bytes::{Buf, BufMut, Bytes};
     use std::io::{Read, Write};
-    use tokio::io::{AsyncRead, AsyncReadExt};
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
+
+    pub type SharedSession = std::sync::Arc<std::sync::Mutex<Session>>;
+
+    pub fn new_shared_session(command: Command) -> SharedSession {
+        use std::sync::{Arc, Mutex};
+        Arc::new(Mutex::new(Session::new(command)))
+    }
 
     /// The request from client side
     #[derive(Debug, Eq, PartialEq, Clone)]
@@ -242,8 +193,6 @@ mod codec {
         Resume,
         Pause,
     }
-
-    pub type SharedTask = std::sync::Arc<std::sync::Mutex<Session>>;
 
     impl ServerOp {
         /// Encode message ready for sent over UnixStream
@@ -430,12 +379,13 @@ mod socket {
             })
         }
 
-        /// Run the `script_file` and serve the client interactions with it
+        /// Run the `program` backgroundly and serve the client interactions with it
         pub async fn run_and_serve(&mut self, program: &Path) -> Result<()> {
             use std::sync::{Arc, Mutex};
 
             // state will be shared with different tasks
-            let db = Arc::new(Mutex::new(Session::new("test")));
+            let command = Command::new(program);
+            let db = codec::new_shared_session(command);
             loop {
                 // wait for client requests
                 let mut client_stream = self.wait_for_client_stream().await?;
@@ -448,7 +398,7 @@ mod socket {
         }
     }
 
-    async fn handle_client_requests(mut client_stream: UnixStream, task: codec::SharedTask) {
+    async fn handle_client_requests(mut client_stream: UnixStream, task: codec::SharedSession) {
         use codec::ServerOp;
 
         // while let Some(op) = rx.recv().await {
@@ -565,6 +515,8 @@ mod client {
         }
 
         async fn send_op(&mut self, op: codec::ServerOp) -> Result<()> {
+            use tokio::io::AsyncWriteExt;
+
             self.stream.write_all(&op.encode()).await?;
             self.stream.flush().await?;
 
