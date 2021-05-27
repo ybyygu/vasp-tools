@@ -1,10 +1,7 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
-use gut::prelude::*;
 use crate::session::Session;
+use gut::prelude::*;
 use std::process::Command;
-
-// use std::os::unix::net::{UnixStream, UnixListener};
-// use std::path::{Path, PathBuf};
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
@@ -333,89 +330,7 @@ mod client {
 }
 // client:1 ends here
 
-// [[file:../vasp-tools.note::*server cli][server cli:1]]
-mod server_cli {
-    use super::*;
-    use gut::fs::*;
-    use structopt::*;
-
-    /// A client of a unix domain socket server for interacting with the program
-    /// run in background
-    #[derive(Debug, StructOpt)]
-    struct Cli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-
-        /// The command or the path to invoking VASP program
-        #[structopt(short = "x")]
-        program: PathBuf,
-
-        /// Path to the socket file to bind (only valid for interactive calculation)
-        #[structopt(short = "u", default_value = "vasp.sock")]
-        socket_file: PathBuf,
-    }
-
-    #[tokio::main]
-    pub async fn adhoc_run_vasp_enter_main() -> Result<()> {
-        let args = Cli::from_args();
-        args.verbose.setup_logger();
-
-        let mut server = crate::socket::server::Server::create(&args.socket_file)?;
-        // watch for user interruption
-        let ctrl_c = tokio::signal::ctrl_c();
-        tokio::select! {
-            _ = ctrl_c => {
-                info!("User interrupted. Shutting down ...");
-            },
-            _ = server.run_and_serve(&args.program) => {
-                info!("program finished for some reasons.");
-            }
-        }
-
-        Ok(())
-    }
-}
-// server cli:1 ends here
-
-// [[file:../vasp-tools.note::*client cli][client cli:1]]
-mod client_cli {
-    use super::*;
-    use gut::fs::*;
-    use structopt::*;
-
-    /// A client of a unix domain socket server for interacting with the program
-    /// run in background
-    #[derive(Debug, StructOpt)]
-    struct Cli {
-        #[structopt(flatten)]
-        verbose: gut::cli::Verbosity,
-
-        /// Path to the socket file to connect
-        #[structopt(short = "u", default_value = "vasp.sock")]
-        socket_file: PathBuf,
-
-        /// Stop VASP server
-        #[structopt(short = "q")]
-        stop: bool,
-    }
-
-    #[tokio::main]
-    pub async fn adhoc_vasp_client_enter_main() -> Result<()> {
-        let args = Cli::from_args();
-        args.verbose.setup_logger();
-
-        let mut client = client::Client::connect(&args.socket_file).await?;
-        client.interact("xx", "test").await?;
-        client.try_pause().await?;
-        client.try_resume().await?;
-        client.try_quit().await?;
-
-        Ok(())
-    }
-}
-// client cli:1 ends here
-
 // [[file:../vasp-tools.note::*pub][pub:1]]
-pub use client_cli::*;
-pub use server_cli::*;
+pub use client::Client;
+pub use server::Server;
 // pub:1 ends here

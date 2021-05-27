@@ -1,3 +1,7 @@
+// [[file:../vasp-tools.note::*docs][docs:1]]
+//! Run child processes in a new session group for easy to interact and control.
+// docs:1 ends here
+
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 // imports:1 ends here
@@ -6,7 +10,7 @@ use gut::prelude::*;
 use rexpect::session::PtySession;
 use std::process::{ChildStdin, ChildStdout, Command};
 
-/// Run child processes in a new session group
+/// Run child processes in a new session group for easy control
 pub struct Session {
     command: Option<Command>,
     session: Option<PtySession>,
@@ -30,7 +34,8 @@ impl Session {
     }
 
     /// Interact with child process's stdin using `input` and return stdout
-    /// read-in until the line matching `read_pattern`
+    /// read-in until the line matching `read_pattern`. The child process will
+    /// be automatically spawned if necessary.
     pub fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
         use rexpect::ReadUntil;
 
