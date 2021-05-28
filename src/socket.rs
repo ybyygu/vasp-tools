@@ -1,5 +1,4 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
-use crate::session::Session;
 use gut::prelude::*;
 use std::process::Command;
 // imports:1 ends here
@@ -13,11 +12,10 @@ mod codec {
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
-    pub type SharedSession = std::sync::Arc<std::sync::Mutex<Session>>;
-
-    pub fn new_shared_session(command: Command) -> SharedSession {
+    pub type SharedTask = std::sync::Arc<std::sync::Mutex<crate::interactive::Task>>;
+    pub fn new_shared_task(command: Command) -> SharedTask {
         use std::sync::{Arc, Mutex};
-        Arc::new(Mutex::new(Session::new(command)))
+        Arc::new(Mutex::new(crate::interactive::Task::new(command)))
     }
 
     /// The request from client side
@@ -152,6 +150,7 @@ mod codec {
 // [[file:../vasp-tools.note::*server][server:1]]
 mod server {
     use super::*;
+    use crate::interactive::*;
     use gut::fs::*;
     use tokio::net::{UnixListener, UnixStream};
 
@@ -212,38 +211,61 @@ mod server {
         pub async fn run_and_serve(&mut self, program: &Path) -> Result<()> {
             use std::sync::{Arc, Mutex};
 
+            // watch for user interruption
+            let ctrl_c = tokio::signal::ctrl_c();
+
             // state will be shared with different tasks
             let command = Command::new(program);
-            let db = codec::new_shared_session(command);
-            loop {
-                // wait for client requests
-                let mut client_stream = self.wait_for_client_stream().await?;
-                // spawn a new task for each client
-                let db = db.clone();
-                tokio::spawn(async move { handle_client_requests(client_stream, db).await });
+            let db = new_shared_task(command);
+
+            tokio::select! {
+                _ = ctrl_c => {
+                    info!("User interrupted. Shutting down ...");
+                    db.clone().quit().await?;
+                },
+                _ = async {
+                    info!("server: start main loop ...");
+                    loop {
+                        // wait for client requests
+                        let mut client_stream = self.wait_for_client_stream().await.unwrap();
+                        let db = db.clone();
+                        // spawn a new task for each client
+                        tokio::spawn(async move { handle_client_requests(client_stream, db).await });
+                    }
+                } => {
+                    info!("main loop done?");
+                }
             }
 
             Ok(())
         }
     }
 
-    async fn handle_client_requests(mut client_stream: UnixStream, task: codec::SharedSession) {
+    async fn handle_client_requests(mut client_stream: UnixStream, mut task: SharedTask) {
         use codec::ServerOp;
 
-        // while let Some(op) = rx.recv().await {
         while let Ok(op) = ServerOp::decode(&mut client_stream).await {
             match op {
                 ServerOp::Interact((input, pattern)) => {
                     info!("client asked for interaction with input and read-pattern");
-                    let mut task = task.lock().unwrap();
-                    if let Err(e) = task.interact(&input, &pattern) {
-                        error!("interaction failure: {:?}", e);
-                        break;
+                    match task.interact(&input, &pattern).await {
+                        Ok(txt) => {
+                            codec::send_msg_encode(&mut client_stream, &txt).await.unwrap();
+                        }
+                        Err(err) => {
+                            error!("interaction error: {:?}", err);
+                        }
                     }
                 }
                 ServerOp::Control(sig) => {
                     info!("client sent control signal {:?}", sig);
-                    return;
+                    // let mut task = task.lock().unwrap();
+                    trace!("task locked");
+                    match sig {
+                        codec::Signal::Quit => task.quit().await.ok(),
+                        codec::Signal::Pause => task.pause().await.ok(),
+                        codec::Signal::Resume => task.resume().await.ok(),
+                    };
                 }
                 _ => {
                     todo!();
@@ -280,12 +302,16 @@ mod client {
 
         /// Interact with background server using `input` for stdin and
         /// `read_pattern` for reading stdout.
-        pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<()> {
+        pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
             info!("Interact with server process ...");
             let op = codec::ServerOp::Interact((input.to_string(), read_pattern.to_string()));
             self.send_op(op).await?;
 
-            Ok(())
+            debug!("receiving output");
+            let txt = codec::recv_msg_decode(&mut self.stream).await?;
+            debug!("got {} bytes", txt.len());
+
+            Ok(txt)
         }
 
         /// Try to tell the background computation to stop

@@ -8,7 +8,7 @@ use gut::prelude::*;
 
 // [[file:../vasp-tools.note::*core/rexpect][core/rexpect:1]]
 use rexpect::session::PtySession;
-use std::process::{ChildStdin, ChildStdout, Command};
+use std::process::{ChildStdin, ChildStdout};
 
 /// Run child processes in a new session group for easy control
 pub struct Session {
@@ -37,8 +37,6 @@ impl Session {
     /// read-in until the line matching `read_pattern`. The child process will
     /// be automatically spawned if necessary.
     pub fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
-        use rexpect::ReadUntil;
-
         // create a new session for the first time
         if self.session.is_none() {
             let command = self.command.take().unwrap();
@@ -47,13 +45,17 @@ impl Session {
         }
         let s = self.session.as_mut().expect("rexpect session");
 
-        trace!("send input for child process's stdin");
-        s.send_line(input)
-            .map_err(|e| format_err!("send input error: {:?}", e))?;
+        // ignore interaction with empty input
+        if !input.is_empty() {
+            trace!("send input for child process's stdin ({} bytes)", input.len());
+            s.send_line(input)
+                .map_err(|e| format_err!("send input error: {:?}", e))?;
+        }
 
-        trace!("send read pattern for child process's stdout");
+        trace!("send read pattern for child process's stdout: {:?}", read_pattern);
         let (x, _) = s
-            .exp_any(vec![ReadUntil::String(read_pattern.into()), ReadUntil::EOF])
+            .exp_any(vec![rexpect::ReadUntil::String(read_pattern.into()), rexpect::ReadUntil::EOF])
+            // .exp_regex(read_pattern)
             .map_err(|e| format_err!("read stdout error: {:?}", e))?;
         return Ok(x);
 
@@ -151,7 +153,7 @@ impl Drop for Session {
     fn drop(&mut self) {
         if let Some((sid, status)) = self.id().zip(self.status()) {
             dbg!(sid, status);
-            // self.terminate();
+            let _ = self.terminate();
         }
     }
 }
@@ -163,3 +165,7 @@ impl Session {
     }
 }
 // drop:1 ends here
+
+// [[file:../vasp-tools.note::*pub][pub:1]]
+pub use std::process::Command;
+// pub:1 ends here
