@@ -37,6 +37,8 @@ impl Session {
     /// read-in until the line matching `read_pattern`. The child process will
     /// be automatically spawned if necessary.
     pub fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
+        use std::io::prelude::*;
+
         // create a new session for the first time
         if self.session.is_none() {
             let command = self.command.take().unwrap();
@@ -50,16 +52,34 @@ impl Session {
             trace!("send input for child process's stdin ({} bytes)", input.len());
             s.send_line(input)
                 .map_err(|e| format_err!("send input error: {:?}", e))?;
+        // } else {
+        //     s.flush().map_err(|e| format_err!("flush stdin input: {:?}", e))?;
         }
 
         trace!("send read pattern for child process's stdout: {:?}", read_pattern);
-        let (x, _) = s
-            .exp_any(vec![rexpect::ReadUntil::String(read_pattern.into()), rexpect::ReadUntil::EOF])
-            // .exp_regex(read_pattern)
-            .map_err(|e| format_err!("read stdout error: {:?}", e))?;
-        return Ok(x);
+        let mut txt = String::new();
+        while let Ok(line) = s.read_line() {
+            writeln!(&mut txt, "{}", line)?;
+            if line.contains(read_pattern) {
+                break;
+            }
+        }
 
-        bail!("invalid stdin/stdout!");
+        // NOTE: rexpect's reading behavior is weild
+        // let (txt, _) = s
+        //     .exp_any(vec![
+        //         rexpect::ReadUntil::String(read_pattern.into()),
+        //         rexpect::ReadUntil::EOF,
+        //     ])
+        //     // .exp_regex(read_pattern)
+        //     .map_err(|e| format_err!("read stdout error: {:?}", e))?;
+        // To make parsing results easier, we remove all `\r` chars, which is added by rexecpt for each line
+        // return Ok(txt.replace("\r", ""));
+        
+        if txt.is_empty() {
+            bail!("Got nothing for pattern: {}", read_pattern);
+        }
+        return Ok(txt);
     }
 }
 
@@ -168,4 +188,34 @@ impl Session {
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
 pub use std::process::Command;
+
+pub fn new_session(program: &std::path::Path) -> Session {
+    let command = Command::new(program);
+    Session::new(command)
+}
 // pub:1 ends here
+
+// [[file:../vasp-tools.note::*test][test:1]]
+#[test]
+fn test_interactive_vasp() -> Result<()> {
+    let read_pattern = "POSITIONS: reading from stdin";
+
+    // the input for writing into stdin
+    let positions = include_str!("../tests/files/interactive_positions.txt");
+
+    let vasp = std::process::Command::new("fake-vasp");
+    let mut s = Session::new(vasp);
+
+    let o = s.interact("", read_pattern)?;
+    let (energy1, forces1) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+    // println!("{}", o);
+    let o = s.interact(&positions, read_pattern)?;
+    let (energy2, forces2) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+    assert_eq!(energy1, energy2);
+    // println!("{}", o);
+
+    s.terminate()?;
+
+    Ok(())
+}
+// test:1 ends here

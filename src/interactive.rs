@@ -75,11 +75,15 @@ mod shared {
         /// output from process stdout until matching `read_pattern`. Call this
         /// function will block for locking child process.
         pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
+            info!("lock task");
             let mut task = self.task.lock().unwrap();
+            info!("lock task done");
             let txt = task.interact(input, read_pattern)?;
+            info!("interact done");
             // create PIDFILE when ready
             if self.pidfile.is_none() {
                 if let Some(sid) = task.id() {
+                    info!("create pidfile for {}", sid);
                     self.pidfile = PidFile::new("vasp.pid".as_ref(), sid)?.into();
                 }
             }
@@ -104,7 +108,7 @@ mod shared {
         }
 
         /// Force to terminate running task
-        pub async fn quit(&self) -> Result<()> {
+        pub async fn terminate(&self) -> Result<()> {
             self.pidfile()?.terminate()?;
             Ok(())
         }

@@ -12,10 +12,15 @@ mod codec {
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
-    pub type SharedTask = std::sync::Arc<std::sync::Mutex<crate::interactive::Task>>;
+    // pub type SharedTask = std::sync::Arc<std::sync::Mutex<crate::interactive::Task>>;
+    // pub fn new_shared_task(command: Command) -> SharedTask {
+    //     use std::sync::{Arc, Mutex};
+    //     Arc::new(Mutex::new(crate::interactive::Task::new(command)))
+    // }
+    
+    pub type SharedTask = crate::session::Session;
     pub fn new_shared_task(command: Command) -> SharedTask {
-        use std::sync::{Arc, Mutex};
-        Arc::new(Mutex::new(crate::interactive::Task::new(command)))
+        crate::session::Session::new(command)
     }
 
     /// The request from client side
@@ -151,6 +156,7 @@ mod codec {
 mod server {
     use super::*;
     use crate::interactive::*;
+    // use super::codec::{new_shared_task, SharedTask};
     use gut::fs::*;
     use tokio::net::{UnixListener, UnixStream};
 
@@ -209,8 +215,6 @@ mod server {
 
         /// Run the `program` backgroundly and serve the client interactions with it
         pub async fn run_and_serve(&mut self, program: &Path) -> Result<()> {
-            use std::sync::{Arc, Mutex};
-
             // watch for user interruption
             let ctrl_c = tokio::signal::ctrl_c();
 
@@ -218,10 +222,15 @@ mod server {
             let command = Command::new(program);
             let db = new_shared_task(command);
 
+            // wait for client requests
+            // let mut client_stream = self.wait_for_client_stream().await.unwrap();
+            // // spawn a new task for each client
+            // handle_client_requests(client_stream, db).await;
+
             tokio::select! {
                 _ = ctrl_c => {
                     info!("User interrupted. Shutting down ...");
-                    db.clone().quit().await?;
+                    db.clone().terminate().await?;
                 },
                 _ = async {
                     info!("server: start main loop ...");
@@ -249,7 +258,9 @@ mod server {
                 ServerOp::Interact((input, pattern)) => {
                     info!("client asked for interaction with input and read-pattern");
                     match task.interact(&input, &pattern).await {
+                    // match task.interact(&input, &pattern) {
                         Ok(txt) => {
+                            info!("sending client text read from stdout");
                             codec::send_msg_encode(&mut client_stream, &txt).await.unwrap();
                         }
                         Err(err) => {
@@ -259,12 +270,13 @@ mod server {
                 }
                 ServerOp::Control(sig) => {
                     info!("client sent control signal {:?}", sig);
-                    // let mut task = task.lock().unwrap();
-                    trace!("task locked");
                     match sig {
-                        codec::Signal::Quit => task.quit().await.ok(),
+                        codec::Signal::Quit => task.terminate().await.ok(),
                         codec::Signal::Pause => task.pause().await.ok(),
                         codec::Signal::Resume => task.resume().await.ok(),
+                        // codec::Signal::Quit => task.terminate().ok(),
+                        // codec::Signal::Pause => task.pause().ok(),
+                        // codec::Signal::Resume => task.resume().ok(),
                     };
                 }
                 _ => {

@@ -21,7 +21,7 @@ pub mod incar {
 
         // remove mandatory tags defined by user, so we can add the required
         // parameters later
-        let bytes = std::fs::read(path)?;
+        let bytes = std::fs::read(path).with_context(|| format!("read {:?} failure", path))?;
         let mut lines: Vec<&[u8]> = bytes
             .lines()
             .filter(|line| {
