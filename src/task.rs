@@ -233,6 +233,12 @@ mod session {
         }
     }
 
+    impl Drop for Session {
+        fn drop(&mut self) {
+            error!("session dropped!");
+        }
+    }
+
     #[derive(Debug, Clone)]
     pub(super) struct SessionHandler {
         pid: u32,
@@ -277,7 +283,9 @@ mod session {
     /// Call `pkill` to send signal to related processes
     fn signal_processes_by_session_id(sid: u32, signal: &str) -> Result<()> {
         debug!("kill session {} using signal {:?}", sid, signal);
-        duct::cmd!("pkill", "-s", sid.to_string()).unchecked().run()?;
+        duct::cmd!("pkill", "--signal", signal, "-s", sid.to_string())
+            .unchecked()
+            .run()?;
 
         Ok(())
     }
