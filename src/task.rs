@@ -137,14 +137,31 @@ async fn handle_interaction_new(
 // [[file:../vasp-tools.note::*session][session:1]]
 mod session {
     use super::*;
-    use rexpect::session::PtySession;
+    use std::io::{BufRead, BufReader};
     use std::process::Command;
-    use std::process::{ChildStdin, ChildStdout};
+    use std::process::{Child, ChildStdin, ChildStdout};
 
     /// Run child processes in a new session group for easy control
     pub struct Session {
         command: Option<Command>,
-        session: Option<PtySession>,
+        session: Option<Child>,
+        stream0: Option<ChildStdin>,
+        stream1: Option<std::io::Lines<BufReader<ChildStdout>>>,
+    }
+
+    /// Spawn child process in a new session
+    fn create_new_session(mut command: Command) -> Result<Child> {
+        use crate::process::ProcessGroupExt;
+        use std::process::Stdio;
+
+        // we want to interact with child process's stdin and stdout
+        let child = command
+            .new_process_group()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+
+        Ok(child)
     }
 
     impl Session {
@@ -153,15 +170,13 @@ mod session {
             Self {
                 command: command.into(),
                 session: None,
+                stream0: None,
+                stream1: None,
             }
         }
 
         pub fn quit(&mut self) -> Result<()> {
-            if let Some(s) = self.session.as_mut() {
-                s.send_control('c')
-                    .map_err(|e| format_err!("interrupt session failure: {:?}", e))?;
-                debug!("ctrl-c sent");
-            }
+            info!("TODO: quit session");
             Ok(())
         }
 
@@ -174,32 +189,23 @@ mod session {
             let s = self.session.as_mut().expect("rexpect session not started yet");
 
             // ignore interaction with empty input
+            let stdin = self.stream0.as_mut().unwrap();
             if !input.is_empty() {
                 trace!("send input for child process's stdin ({} bytes)", input.len());
-                s.send_line(input)
-                    .map_err(|e| format_err!("send input error: {:?}", e))?;
+                stdin.write_all(input.as_bytes())?;
+                stdin.flush()?;
             }
-
             trace!("send read pattern for child process's stdout: {:?}", read_pattern);
 
-            // let mut txt = String::new();
-            // while let Ok(line) = s.read_line() {
-            //     writeln!(&mut txt, "{}", line)?;
-            //     if line.contains(read_pattern) {
-            //         break;
-            //     }
-            // }
-
-            // NOTE: rexpect's reading behavior is weild
-            let (txt, _) = s
-                .exp_any(vec![
-                    rexpect::ReadUntil::String(read_pattern.into()),
-                    rexpect::ReadUntil::EOF,
-                ])
-                // .exp_regex(read_pattern)
-                .map_err(|e| format_err!("read stdout error: {:?}", e))?;
-            // To make parsing results easier, we remove all `\r` chars, which is added by rexecpt for each line
-            return Ok(txt.replace("\r", ""));
+            let mut txt = String::new();
+            let stdout = self.stream1.as_mut().unwrap();
+            for line in stdout {
+                let line = line?;
+                writeln!(&mut txt, "{}", line)?;
+                if line.starts_with(read_pattern) {
+                    break;
+                }
+            }
 
             if txt.is_empty() {
                 bail!("Got nothing for pattern: {}", read_pattern);
@@ -210,26 +216,21 @@ mod session {
         /// Return child process's session ID, useful for killing all child
         /// processes using `pkill` command.
         pub fn id(&self) -> Option<u32> {
-            let sid = self.session.as_ref()?.process.child_pid.as_raw();
-            Some(sid as u32)
+            self.session.as_ref().map(|s| s.id())
         }
 
         pub(super) fn spawn_new(&mut self) -> Result<u32> {
             let command = self.command.take().unwrap();
-            self.session = create_new_session(command)?.into();
+            let mut child = create_new_session(command)?;
+            self.stream0 = child.stdin.take().unwrap().into();
+            let stdout = child.stdout.take().unwrap();
+            self.stream1 = BufReader::new(stdout).lines().into();
+            self.session = child.into();
+
             let pid = self.id().unwrap();
             info!("start child process in new session: {:?}", pid);
             Ok(pid)
         }
-    }
-
-    /// Spawn child process in a new session
-    fn create_new_session(command: Command) -> Result<PtySession> {
-        use rexpect::session::spawn_command;
-
-        let session = spawn_command(command, None).map_err(|e| format_err!("spawn command error: {:?}", e))?;
-
-        Ok(session)
     }
 
     #[derive(Debug, Clone)]
