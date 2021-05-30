@@ -3,7 +3,7 @@
 // docs:1 ends here
 
 // [[file:../vasp-tools.note::*imports][imports:1]]
-use gut::prelude::*;
+use crate::common::*;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*core/rexpect][core/rexpect:1]]
@@ -33,6 +33,13 @@ impl Session {
         Some(sid as u32)
     }
 
+    pub(crate) fn spawn_new(&mut self) -> Result<()> {
+        let command = self.command.take().unwrap();
+        self.session = create_new_session(command)?.into();
+        info!("start child process in new session: {:?}", self.id());
+        Ok(())
+    }
+
     /// Interact with child process's stdin using `input` and return stdout
     /// read-in until the line matching `read_pattern`. The child process will
     /// be automatically spawned if necessary.
@@ -41,9 +48,7 @@ impl Session {
 
         // create a new session for the first time
         if self.session.is_none() {
-            let command = self.command.take().unwrap();
-            self.session = create_new_session(command)?.into();
-            info!("start child process in new session: {:?}", self.id());
+            self.spawn_new()?;
         }
         let s = self.session.as_mut().expect("rexpect session");
 
@@ -52,8 +57,6 @@ impl Session {
             trace!("send input for child process's stdin ({} bytes)", input.len());
             s.send_line(input)
                 .map_err(|e| format_err!("send input error: {:?}", e))?;
-        // } else {
-        //     s.flush().map_err(|e| format_err!("flush stdin input: {:?}", e))?;
         }
 
         trace!("send read pattern for child process's stdout: {:?}", read_pattern);
@@ -75,7 +78,7 @@ impl Session {
         //     .map_err(|e| format_err!("read stdout error: {:?}", e))?;
         // To make parsing results easier, we remove all `\r` chars, which is added by rexecpt for each line
         // return Ok(txt.replace("\r", ""));
-        
+
         if txt.is_empty() {
             bail!("Got nothing for pattern: {}", read_pattern);
         }

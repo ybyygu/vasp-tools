@@ -1,7 +1,6 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
+use crate::common::*;
 use gut::fs::*;
-use gut::prelude::*;
-use std::path::PathBuf;
 use structopt::*;
 // imports:1 ends here
 
@@ -39,8 +38,7 @@ fn interactive_vasp_session_bbm(mut session: crate::session::Session) -> Result<
 // VASP 5.3.5: "POSITIONS: read from stdin";
 // VASP 6.1.0: "POSITIONS: reading from stdin";
 // const VASP_READ_PATTERN: &str = "POSITIONS: read from stdin";
-// const VASP_READ_PATTERN: &str = "POSITIONS: reading from stdin";
-const VASP_READ_PATTERN: &str = "POSITIONS: read";
+const VASP_READ_PATTERN: &str = "POSITIONS: reading from stdin";
 
 /// A helper program for run VASP calculations
 #[derive(Debug, StructOpt)]
@@ -203,6 +201,8 @@ pub fn simulate_interactive_vasp() -> Result<()> {
         for _ in 0..natoms {
             handler.read_line(&mut positions)?;
         }
+        // make it slower, 0.1 second delay
+        std::thread::sleep(std::time::Duration::from_millis(100));
         print!("{}", part1);
         println!("{:4} {}", i, energy);
     }

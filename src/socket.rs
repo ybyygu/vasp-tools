@@ -1,5 +1,5 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
-use gut::prelude::*;
+use crate::common::*;
 use std::process::Command;
 // imports:1 ends here
 
@@ -157,6 +157,7 @@ mod server {
     use super::*;
     use crate::interactive::*;
     // use super::codec::{new_shared_task, SharedTask};
+    use crate::task::new_shared_task;
     use gut::fs::*;
     use tokio::net::{UnixListener, UnixStream};
 
@@ -181,7 +182,6 @@ mod server {
         }
 
         async fn wait_for_client_stream(&mut self) -> Result<UnixStream> {
-            info!("wait for new client");
             let (stream, _) = self.listener.accept().await.context("accept new unix socket client")?;
 
             Ok(stream)
@@ -220,26 +220,35 @@ mod server {
 
             // state will be shared with different tasks
             let command = Command::new(program);
-            let db = new_shared_task(command);
+            let (mut server, client) = new_shared_task(command);
+            let h = server.run_and_serve();
+            tokio::pin!(h);
 
             // wait for client requests
             // let mut client_stream = self.wait_for_client_stream().await.unwrap();
             // // spawn a new task for each client
             // handle_client_requests(client_stream, db).await;
+            // start the server side
 
             tokio::select! {
                 _ = ctrl_c => {
                     info!("User interrupted. Shutting down ...");
-                    db.clone().terminate().await?;
+                    // client.clone().terminate().await?;
+                },
+                res = &mut h => {
+                    if let Err(e) = res {
+                        error!("Task server error: {:?}", e);
+                    }
                 },
                 _ = async {
                     info!("server: start main loop ...");
-                    loop {
+                    for i in 0.. {
                         // wait for client requests
                         let mut client_stream = self.wait_for_client_stream().await.unwrap();
-                        let db = db.clone();
+                        info!("new incoming connection {}", i);
+                        let task = client.clone();
                         // spawn a new task for each client
-                        tokio::spawn(async move { handle_client_requests(client_stream, db).await });
+                        tokio::spawn(async move { handle_client_requests(client_stream, task).await });
                     }
                 } => {
                     info!("main loop done?");
@@ -250,7 +259,7 @@ mod server {
         }
     }
 
-    async fn handle_client_requests(mut client_stream: UnixStream, mut task: SharedTask) {
+    async fn handle_client_requests(mut client_stream: UnixStream, mut task: crate::task::Client) {
         use codec::ServerOp;
 
         while let Ok(op) = ServerOp::decode(&mut client_stream).await {
@@ -258,7 +267,6 @@ mod server {
                 ServerOp::Interact((input, pattern)) => {
                     info!("client asked for interaction with input and read-pattern");
                     match task.interact(&input, &pattern).await {
-                    // match task.interact(&input, &pattern) {
                         Ok(txt) => {
                             info!("sending client text read from stdout");
                             codec::send_msg_encode(&mut client_stream, &txt).await.unwrap();
@@ -274,9 +282,6 @@ mod server {
                         codec::Signal::Quit => task.terminate().await.ok(),
                         codec::Signal::Pause => task.pause().await.ok(),
                         codec::Signal::Resume => task.resume().await.ok(),
-                        // codec::Signal::Quit => task.terminate().ok(),
-                        // codec::Signal::Pause => task.pause().ok(),
-                        // codec::Signal::Resume => task.resume().ok(),
                     };
                 }
                 _ => {

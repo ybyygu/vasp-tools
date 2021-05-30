@@ -9,7 +9,13 @@ mod interactive;
 mod process;
 mod session;
 mod socket;
+mod task;
 mod vasp;
+
+pub(crate) mod common {
+    pub use gut::prelude::*;
+    pub use std::path::{Path, PathBuf};
+}
 // mods:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]

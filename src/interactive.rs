@@ -3,9 +3,7 @@
 // docs:1 ends here
 
 // [[file:../vasp-tools.note::*imports][imports:1]]
-use gut::prelude::*;
-
-use std::path::{Path, PathBuf};
+use crate::common::*;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*base][base:1]]

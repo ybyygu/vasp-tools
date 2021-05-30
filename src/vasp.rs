@@ -3,9 +3,7 @@
 // docs:1 ends here
 
 // [[file:../vasp-tools.note::*imports][imports:1]]
-use gut::prelude::*;
-
-use std::path::{Path, PathBuf};
+use crate::common::*;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*update params][update params:1]]
@@ -21,7 +19,7 @@ pub mod incar {
 
         // remove mandatory tags defined by user, so we can add the required
         // parameters later
-        let bytes = std::fs::read(path).with_context(|| format!("read {:?} failure", path))?;
+        let bytes = std::fs::read(path).with_context(|| format!("read {:?} file failure", path))?;
         let mut lines: Vec<&[u8]> = bytes
             .lines()
             .filter(|line| {
