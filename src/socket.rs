@@ -146,7 +146,7 @@ mod codec {
 // [[file:../vasp-tools.note::*server][server:1]]
 mod server {
     use super::*;
-    use crate::interactive::new_shared_task;
+    use crate::interactive::new_interactive_task;
     use crate::interactive::Client as TaskClient;
 
     use gut::fs::*;
@@ -211,7 +211,7 @@ mod server {
 
             // state will be shared with different tasks
             let command = Command::new(program);
-            let (mut server, client) = new_shared_task(command);
+            let (mut server, client) = new_interactive_task(command);
             let h = server.run_and_serve();
             tokio::pin!(h);
 
