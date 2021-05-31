@@ -9,7 +9,6 @@ mod interactive;
 mod process;
 mod session;
 mod socket;
-mod task;
 mod vasp;
 
 pub(crate) mod common {

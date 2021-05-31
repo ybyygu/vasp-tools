@@ -146,7 +146,9 @@ mod codec {
 // [[file:../vasp-tools.note::*server][server:1]]
 mod server {
     use super::*;
-    use crate::task::new_shared_task;
+    use crate::interactive::new_shared_task;
+    use crate::interactive::Client as TaskClient;
+
     use gut::fs::*;
     use tokio::net::{UnixListener, UnixStream};
 
@@ -242,7 +244,7 @@ mod server {
         }
     }
 
-    async fn handle_client_requests(mut client_stream: UnixStream, mut task: crate::task::Client) {
+    async fn handle_client_requests(mut client_stream: UnixStream, mut task: TaskClient) {
         use codec::ServerOp;
 
         while let Ok(op) = ServerOp::decode(&mut client_stream).await {
