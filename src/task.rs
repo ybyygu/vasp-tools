@@ -5,6 +5,7 @@ use std::process::Command;
 use session::{Session, SessionHandler};
 
 use std::sync::Arc;
+use tokio::sync::Notify;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*base][base:1]]
@@ -46,8 +47,6 @@ pub struct Task {
 // base:1 ends here
 
 // [[file:../vasp-tools.note::*core][core:1]]
-use tokio::sync::Notify;
-
 impl Task {
     /// Run child process in new session, and serve requests for interactions.
     pub async fn run_and_serve(&mut self) -> Result<()> {
@@ -95,7 +94,7 @@ async fn handle_interaction_new(
                 match dbg!(ctl) {
                     Control::Pause =>  {session_handler.as_ref().unwrap().pause();}
                     Control::Resume =>  {session_handler.as_ref().unwrap().resume();}
-                    Control::Quit =>  {session_handler.as_ref().unwrap().terminate();}
+                    Control::Quit =>  {session_handler.as_ref().unwrap().terminate(); break;}
                 }
             }
             else => {break;}
