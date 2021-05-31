@@ -1,8 +1,9 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
-use gut::prelude::*;
-use std::path::{Path, PathBuf};
+use crate::common::*;
 
+use gut::prelude::*;
 use std::io::prelude::*;
+use std::process::Command;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*process group][process group:1]]
@@ -17,11 +18,11 @@ macro_rules! setsid {
     }};
 }
 
+/// Create child process in new session
 pub trait ProcessGroupExt<T> {
     fn new_process_group(&mut self) -> &mut T;
 }
 
-use std::process::Command;
 impl ProcessGroupExt<Command> for Command {
     fn new_process_group(&mut self) -> &mut Command {
         use std::os::unix::process::CommandExt;

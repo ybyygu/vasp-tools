@@ -8,8 +8,6 @@ use structopt::*;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*vasp][vasp:1]]
-// VASP 5.3.5: "POSITIONS: read from stdin";
-// VASP 6.1.0: "POSITIONS: reading from stdin";
 const VASP_READ_PATTERN: &str = "POSITIONS: reading from stdin";
 
 /// # Parameters

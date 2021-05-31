@@ -152,6 +152,7 @@ mod server {
     use gut::fs::*;
     use tokio::net::{UnixListener, UnixStream};
 
+    /// Computation server backended by unix domain socket
     #[derive(Debug)]
     pub struct Server {
         socket_file: PathBuf,
@@ -168,10 +169,6 @@ mod server {
     }
 
     impl Server {
-        async fn handle_contrl_signal(&self) -> Result<()> {
-            todo!()
-        }
-
         async fn wait_for_client_stream(&mut self) -> Result<UnixStream> {
             let (stream, _) = self.listener.accept().await.context("accept new unix socket client")?;
 
@@ -323,14 +320,14 @@ mod client {
             Ok(())
         }
 
-        /// Try to tell the background computation to stop
+        /// Try to pause the background computation
         pub async fn try_pause(&mut self) -> Result<()> {
             self.send_op_control(codec::Signal::Pause).await?;
 
             Ok(())
         }
 
-        /// Try to tell the background computation to stop
+        /// Try to resume the background computation
         pub async fn try_resume(&mut self) -> Result<()> {
             self.send_op_control(codec::Signal::Resume).await?;
 

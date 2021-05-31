@@ -131,11 +131,13 @@ mod task {
 // [[file:../vasp-tools.note::*client][client:1]]
 #[derive(Clone)]
 pub struct Client {
+    // for send client request for pause, resume, stop computation in server side
     tx_ctl: TxControl,
-    // for interaction with child process
+    // for interaction with child process in server side
     tx_int: TxInteraction,
-    // for getting child process's stdout
+    // for getting child process's stdout running in server side
     rx_out: RxInteractionOutput,
+    // for getting notification when computation done in server side
     notifier: Arc<Notify>,
 }
 
