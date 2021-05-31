@@ -20,13 +20,9 @@ enum Control {
     Resume,
 }
 
-#[derive(Debug, Clone)]
-enum InteractionProgress {
-    Output(String),
-}
-
-type RxInteractionOutput = tokio::sync::watch::Receiver<InteractionProgress>;
-type TxInteractionOutput = tokio::sync::watch::Sender<InteractionProgress>;
+type InteractionOutput = String;
+type RxInteractionOutput = tokio::sync::watch::Receiver<InteractionOutput>;
+type TxInteractionOutput = tokio::sync::watch::Sender<InteractionOutput>;
 type RxInteraction = tokio::sync::mpsc::Receiver<Interaction>;
 type TxInteraction = tokio::sync::mpsc::Sender<Interaction>;
 type RxControl = tokio::sync::mpsc::Receiver<Control>;
@@ -41,8 +37,8 @@ pub struct Task {
     tx_out: Option<TxInteractionOutput>,
     // child process
     session: Option<Session>,
-
-    notifier: Option<Arc<Notify>>,
+    // notify when computation done
+    notifier: Arc<Notify>,
 }
 // base:1 ends here
 
@@ -67,7 +63,7 @@ async fn handle_interaction_new(
     mut rx_int: RxInteraction,
     mut tx_out: TxInteractionOutput,
     mut rx_ctl: RxControl,
-    notifier: Option<Arc<Notify>>,
+    notifier: Arc<Notify>,
 ) -> Result<()> {
     let mut session_handler = None;
     for i in 0.. {
@@ -82,16 +78,14 @@ async fn handle_interaction_new(
                 session_handler = Some(Arc::new(handler));
                 let Interaction(input, read_pattern) = int;
                 let out = session.interact(&input, &read_pattern)?;
-                info!("coffee break for computation ... {:?}", i);
+                debug!("coffee break for computation ... {:?}", i);
                 // tokio::time::sleep(std::time::Duration::from_secs_f64(0.1)).await;
-                let int_out = InteractionProgress::Output(out);
-                tx_out.send(int_out).context("send stdout using tx_out")?;
-                notifier.as_ref().unwrap().notify_waiters();
-                // tokio::time::sleep(std::time::Duration::from_secs_f64(0.1)).await;
+                tx_out.send(out).context("send stdout using tx_out")?;
+                &notifier.notify_waiters();
                 info!("Computation done: sent client {} the result", i);
             }
             Some(ctl) = rx_ctl.recv() => {
-                match dbg!(ctl) {
+                match ctl {
                     Control::Pause =>  {session_handler.as_ref().unwrap().pause();}
                     Control::Resume =>  {session_handler.as_ref().unwrap().resume();}
                     Control::Quit =>  {session_handler.as_ref().unwrap().terminate(); break;}
@@ -147,8 +141,20 @@ mod session {
             }
         }
 
-        pub fn quit(&mut self) -> Result<()> {
-            info!("TODO: quit session");
+        pub(super) fn quit(&mut self) -> Result<()> {
+            if let Some(child) = self.session.as_mut() {
+                match child.try_wait() {
+                    Ok(None) => {
+                        info!("child process is still running?");
+                    }
+                    Ok(Some(n)) => {
+                        info!("child process exited with code: {}", n);
+                    }
+                    Err(e) => {
+                        error!("failed to check child process'status: {:?}", e);
+                    }
+                }
+            }
             Ok(())
         }
 
@@ -207,7 +213,9 @@ mod session {
 
     impl Drop for Session {
         fn drop(&mut self) {
-            error!("session dropped!");
+            if let Err(e) = self.quit() {
+                error!("drop session error: {:?}", e);
+            }
         }
     }
 
@@ -267,18 +275,6 @@ mod session {
 }
 // session:1 ends here
 
-// [[file:../vasp-tools.note::*drop][drop:1]]
-impl Drop for Task {
-    fn drop(&mut self) {
-        if let Some(s) = self.session.as_mut() {
-            if let Err(e) = s.quit() {
-                dbg!(e);
-            }
-        }
-    }
-}
-// drop:1 ends here
-
 // [[file:../vasp-tools.note::*api][api:1]]
 use tokio_stream::{wrappers::WatchStream, StreamExt};
 
@@ -294,7 +290,7 @@ pub struct Client {
 pub fn new_shared_task(command: Command) -> (Task, Client) {
     let (tx_int, rx_int) = tokio::sync::mpsc::channel(1);
     let (tx_ctl, rx_ctl) = tokio::sync::mpsc::channel(1);
-    let (tx_out, rx_out) = tokio::sync::watch::channel(InteractionProgress::Output("".into()));
+    let (tx_out, rx_out) = tokio::sync::watch::channel("".into());
 
     let notify = Arc::new(Notify::new());
     let notify2 = notify.clone();
@@ -304,7 +300,7 @@ pub fn new_shared_task(command: Command) -> (Task, Client) {
         rx_ctl: rx_ctl.into(),
         tx_out: tx_out.into(),
         session: session.into(),
-        notifier: Some(notify),
+        notifier: notify,
     };
     let rx_out_stream = WatchStream::new(rx_out.clone());
     let client = Client {
@@ -360,14 +356,11 @@ impl Client {
         info!("got notification for compuation done");
 
         if self.rx_out.changed().await.is_ok() {
-            match &*self.rx_out.borrow() {
-                InteractionProgress::Output(out) => {
-                    info!("got output ({} bytes)", out.len());
-                    return Ok(out.to_string());
-                }
-            }
+            let out = &*self.rx_out.borrow();
+            Ok(out.to_string())
+        } else {
+            bail!("todo");
         }
-        bail!("todo");
     }
 }
 // api:1 ends here
@@ -440,34 +433,3 @@ mod test {
     }
 }
 // test:1 ends here
-
-// [[file:../vasp-tools.note::*test_tokio_watch][test_tokio_watch:1]]
-#[tokio::test]
-async fn test_tokio_watch() -> Result<()> {
-    gut::cli::setup_logger_for_test();
-
-    use tokio::sync::watch;
-
-    let (tx, mut rx) = watch::channel("hello");
-    let h1 = tokio::spawn(async move {
-        log_dbg!();
-        while rx.changed().await.is_ok() {
-            info!("received = {:?}", *rx.borrow());
-        }
-    });
-    let h2 = tokio::spawn(async move {
-        use tokio::time::{sleep, Duration};
-
-        sleep(Duration::from_millis(100)).await;
-        tx.send("world1");
-        sleep(Duration::from_millis(100)).await;
-        tx.send("world2");
-        sleep(Duration::from_millis(100)).await;
-        tx.send("world3");
-    });
-
-    tokio::join!(h1, h2);
-
-    Ok(())
-}
-// test_tokio_watch:1 ends here
