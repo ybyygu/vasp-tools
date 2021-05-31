@@ -2,11 +2,13 @@
 use crate::common::*;
 use gut::fs::*;
 use structopt::*;
+
+use crate::task::Session;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*vasp][vasp:1]]
 // just for test
-fn interactive_vasp_session_bbm(mut session: crate::session::Session) -> Result<()> {
+fn interactive_vasp_session_bbm(mut session: Session) -> Result<()> {
     // for the first time run, VASP reads coordinates from POSCAR
     let input: String = if !std::path::Path::new("OUTCAR").exists() {
         info!("Write complete POSCAR file for initial calculation.");
@@ -60,9 +62,6 @@ struct ServerCli {
     #[structopt(long, conflicts_with = "single_point")]
     interactive: bool,
 
-    #[structopt(long)]
-    adhoc: bool,
-
     /// Path to the socket file to bind (only valid for interactive calculation)
     #[structopt(short = "u", default_value = "vasp.sock")]
     socket_file: PathBuf,
@@ -75,14 +74,6 @@ pub async fn run_vasp_enter_main() -> Result<()> {
 
     let vasp_program = &args.program;
     let interactive = args.interactive;
-
-    // adhoc hacking
-    if args.adhoc {
-        let session = crate::session::new_session(&args.program);
-        interactive_vasp_session_bbm(session)?;
-
-        return Ok(());
-    }
 
     if interactive {
         info!("Run VASP for interactive calculation ...");

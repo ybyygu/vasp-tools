@@ -1,8 +1,6 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use crate::common::*;
 use std::process::Command;
-// use crate::session::Session;
-use session::{Session, SessionHandler};
 
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -85,10 +83,13 @@ async fn handle_interaction_new(
                 info!("Computation done: sent client {} the result", i);
             }
             Some(ctl) = rx_ctl.recv() => {
-                match ctl {
-                    Control::Pause =>  {session_handler.as_ref().unwrap().pause();}
-                    Control::Resume =>  {session_handler.as_ref().unwrap().resume();}
-                    Control::Quit =>  {session_handler.as_ref().unwrap().terminate(); break;}
+                match control_session(session_handler.as_ref(), ctl) {
+                    Ok(false) => {},
+                    Ok(true) => break,
+                    Err(err) => {
+                        error!("control session error: {:?}", err);
+                        break;
+                    }
                 }
             }
             else => {break;}
@@ -97,6 +98,24 @@ async fn handle_interaction_new(
     }
 
     Ok(())
+}
+
+fn control_session(s: Option<&Arc<SessionHandler>>, ctl: Control) -> Result<bool> {
+    let s = s.as_ref().ok_or(format_err!("control error: session not started!"))?;
+
+    match ctl {
+        Control::Pause => {
+            s.pause()?;
+        }
+        Control::Resume => {
+            s.resume()?;
+        }
+        Control::Quit => {
+            s.terminate()?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 // core:1 ends here
 
@@ -220,7 +239,7 @@ mod session {
     }
 
     #[derive(Debug, Clone)]
-    pub(super) struct SessionHandler {
+    pub(crate) struct SessionHandler {
         pid: u32,
     }
 
@@ -276,8 +295,7 @@ mod session {
 // session:1 ends here
 
 // [[file:../vasp-tools.note::*api][api:1]]
-use tokio_stream::{wrappers::WatchStream, StreamExt};
-
+#[derive(Clone)]
 pub struct Client {
     tx_ctl: TxControl,
     // for interaction with child process
@@ -302,7 +320,6 @@ pub fn new_shared_task(command: Command) -> (Task, Client) {
         session: session.into(),
         notifier: notify,
     };
-    let rx_out_stream = WatchStream::new(rx_out.clone());
     let client = Client {
         tx_int,
         tx_ctl,
@@ -314,16 +331,6 @@ pub fn new_shared_task(command: Command) -> (Task, Client) {
 }
 
 impl Client {
-    /// Create a shared task in concurrency environment
-    pub fn new_copy(&self) -> Self {
-        Self {
-            tx_int: self.tx_int.clone(),
-            tx_ctl: self.tx_ctl.clone(),
-            rx_out: self.rx_out.clone(),
-            notifier: self.notifier.clone(),
-        }
-    }
-
     pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
         // discard the initial value
         // let _ = self.recv_stdout().await?;
@@ -364,6 +371,11 @@ impl Client {
     }
 }
 // api:1 ends here
+
+// [[file:../vasp-tools.note::*pub][pub:1]]
+pub(crate) use self::session::Session;
+pub(crate) use self::session::SessionHandler;
+// pub:1 ends here
 
 // [[file:../vasp-tools.note::*test][test:1]]
 mod test {
@@ -421,7 +433,7 @@ mod test {
                     }
                 },
                 _ = async {
-                    let mut task = client.new_copy();
+                    let mut task = client.clone();
                     if let Err(e) = handle_vasp_interaction(&mut task).await {
                         error!("Task client failure: {:?}", e);
                     }

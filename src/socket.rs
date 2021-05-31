@@ -1,6 +1,8 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use crate::common::*;
 use std::process::Command;
+
+use crate::task::Session;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
@@ -11,17 +13,6 @@ mod codec {
     use std::io::{Read, Write};
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
-
-    // pub type SharedTask = std::sync::Arc<std::sync::Mutex<crate::interactive::Task>>;
-    // pub fn new_shared_task(command: Command) -> SharedTask {
-    //     use std::sync::{Arc, Mutex};
-    //     Arc::new(Mutex::new(crate::interactive::Task::new(command)))
-    // }
-    
-    pub type SharedTask = crate::session::Session;
-    pub fn new_shared_task(command: Command) -> SharedTask {
-        crate::session::Session::new(command)
-    }
 
     /// The request from client side
     #[derive(Debug, Eq, PartialEq, Clone)]
@@ -155,8 +146,6 @@ mod codec {
 // [[file:../vasp-tools.note::*server][server:1]]
 mod server {
     use super::*;
-    use crate::interactive::*;
-    // use super::codec::{new_shared_task, SharedTask};
     use crate::task::new_shared_task;
     use gut::fs::*;
     use tokio::net::{UnixListener, UnixStream};
@@ -224,12 +213,6 @@ mod server {
             let h = server.run_and_serve();
             tokio::pin!(h);
 
-            // wait for client requests
-            // let mut client_stream = self.wait_for_client_stream().await.unwrap();
-            // // spawn a new task for each client
-            // handle_client_requests(client_stream, db).await;
-            // start the server side
-
             tokio::select! {
                 _ = ctrl_c => {
                     info!("User interrupted. Shutting down ...");
@@ -246,7 +229,7 @@ mod server {
                         // wait for client requests
                         let mut client_stream = self.wait_for_client_stream().await.unwrap();
                         info!("new incoming connection {}", i);
-                        let task = client.new_copy();
+                        let task = client.clone();
                         // spawn a new task for each client
                         tokio::spawn(async move { handle_client_requests(client_stream, task).await });
                     }
