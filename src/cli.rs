@@ -1,14 +1,21 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use crate::common::*;
+use crate::socket::Client;
+
+use gosh::model::ModelProperties;
 use gut::fs::*;
 use structopt::*;
-
-use crate::session::Session;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*vasp][vasp:1]]
-// just for test
-fn interactive_vasp_session_bbm(mut session: Session) -> Result<()> {
+// VASP 5.3.5: "POSITIONS: read from stdin";
+// VASP 6.1.0: "POSITIONS: reading from stdin";
+const VASP_READ_PATTERN: &str = "POSITIONS: reading from stdin";
+
+/// # Parameters
+///
+/// * control: try to pause/resume running process to reduce CPU usages
+async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Result<()> {
     // for the first time run, VASP reads coordinates from POSCAR
     let input: String = if !std::path::Path::new("OUTCAR").exists() {
         info!("Write complete POSCAR file for initial calculation.");
@@ -17,31 +24,58 @@ fn interactive_vasp_session_bbm(mut session: Session) -> Result<()> {
         // inform server to start with empty input
         "".into()
     } else {
-        // redirect scaled positions to server for interactive VASP calculations
+        // resume paused calculation
+        if control {
+            client.try_resume().await?;
+        }
+        // redirect scaled positions to server for interactive VASP calculationsSP
         info!("Send scaled coordinates to interactive VASP server.");
         crate::vasp::stdin::get_scaled_positions_from_stdin()?
     };
 
     // wait for output
-    let s = session.interact(&input, VASP_READ_PATTERN)?;
-
+    let s = client.interact(&input, VASP_READ_PATTERN).await?;
     let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
-    let mut mp = gosh::model::ModelProperties::default();
+    let mut mp = ModelProperties::default();
     mp.set_energy(energy);
     mp.set_forces(forces);
     println!("{}", mp);
 
+    // pause VASP to avoid wasting CPU times, which will be resumed on next calculation
+    if control {
+        client.try_pause().await?;
+    }
+
+    Ok(())
+}
+
+/// for creating `fake-vasp` binary, simulating interactive VASP caclulation
+pub fn simulate_interactive_vasp() -> Result<()> {
+    let part0 = include_str!("../tests/files/interactive_iter0.txt");
+    let part1 = include_str!("../tests/files/interactive_iter1.txt");
+    let energy = "F= -.85097948E+02 E0= -.85096866E+02  d E =-.850979E+02  mag=     2.9646";
+    let i = 4;
+
+    let natoms = 25;
+    let stdin = std::io::stdin();
+    print!("{}", part0);
+    for i in 2.. {
+        println!("POSITIONS: reading from stdin");
+        let mut handler = stdin.lock();
+        let mut positions = String::new();
+        for _ in 0..natoms {
+            handler.read_line(&mut positions)?;
+        }
+        // make it slower, 0.1 second delay
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        print!("{}", part1);
+        println!("{:4} {}", i, energy);
+    }
     Ok(())
 }
 // vasp:1 ends here
 
 // [[file:../vasp-tools.note::*server][server:1]]
-// NOTE: The read pattern is different
-// VASP 5.3.5: "POSITIONS: read from stdin";
-// VASP 6.1.0: "POSITIONS: reading from stdin";
-// const VASP_READ_PATTERN: &str = "POSITIONS: read from stdin";
-const VASP_READ_PATTERN: &str = "POSITIONS: reading from stdin";
-
 /// A helper program for run VASP calculations
 #[derive(Debug, StructOpt)]
 struct ServerCli {
@@ -136,9 +170,6 @@ struct ClientCli {
 
 #[tokio::main]
 pub async fn vasp_client_enter_main() -> Result<()> {
-    use crate::socket::Client;
-    use gosh::model::ModelProperties;
-
     let args = ClientCli::from_args();
     args.verbose.setup_logger();
 
@@ -149,62 +180,8 @@ pub async fn vasp_client_enter_main() -> Result<()> {
         return Ok(());
     }
 
-    // for the first time run, VASP reads coordinates from POSCAR
-    let input: String = if !std::path::Path::new("OUTCAR").exists() {
-        info!("Write complete POSCAR file for initial calculation.");
-        let txt = crate::vasp::stdin::read_txt_from_stdin()?;
-        gut::fs::write_to_file("POSCAR", &txt)?;
-        // inform server to start with empty input
-        "".into()
-    } else {
-        // resume paused calculation
-        if args.control {
-            client.try_resume().await?;
-        }
-        // redirect scaled positions to server for interactive VASP calculations
-        info!("Send scaled coordinates to interactive VASP server.");
-        crate::vasp::stdin::get_scaled_positions_from_stdin()?
-    };
-
-    // wait for output
-    let s = client.interact(&input, VASP_READ_PATTERN).await?;
-    let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
-    let mut mp = gosh::model::ModelProperties::default();
-    mp.set_energy(energy);
-    mp.set_forces(forces);
-    println!("{}", mp);
-
-    // pause VASP to avoid wasting CPU times, which will be resumed on next calculation
-    if args.control {
-        client.try_pause().await?;
-    }
+    interactive_vasp_session_bbm(&mut client, args.control).await?;
 
     Ok(())
 }
 // client:1 ends here
-
-// [[file:../vasp-tools.note::*simulate][simulate:1]]
-pub fn simulate_interactive_vasp() -> Result<()> {
-    let part0 = include_str!("../tests/files/interactive_iter0.txt");
-    let part1 = include_str!("../tests/files/interactive_iter1.txt");
-    let energy = "F= -.85097948E+02 E0= -.85096866E+02  d E =-.850979E+02  mag=     2.9646";
-    let i = 4;
-
-    let natoms = 25;
-    let stdin = std::io::stdin();
-    print!("{}", part0);
-    for i in 2.. {
-        println!("POSITIONS: reading from stdin");
-        let mut handler = stdin.lock();
-        let mut positions = String::new();
-        for _ in 0..natoms {
-            handler.read_line(&mut positions)?;
-        }
-        // make it slower, 0.1 second delay
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        print!("{}", part1);
-        println!("{:4} {}", i, energy);
-    }
-    Ok(())
-}
-// simulate:1 ends here

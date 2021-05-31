@@ -123,7 +123,7 @@ fn control_session(s: Option<&Arc<SessionHandler>>, ctl: Control) -> Result<bool
 }
 // task/core:1 ends here
 
-// [[file:../vasp-tools.note::*api][api:1]]
+// [[file:../vasp-tools.note::*client][client:1]]
 #[derive(Clone)]
 pub struct Client {
     tx_ctl: TxControl,
@@ -134,7 +134,7 @@ pub struct Client {
     notifier: Arc<Notify>,
 }
 
-pub fn new_shared_task(command: Command) -> (Task, Client) {
+pub(crate) fn new_shared_task(command: Command) -> (Task, Client) {
     let (tx_int, rx_int) = tokio::sync::mpsc::channel(1);
     let (tx_ctl, rx_ctl) = tokio::sync::mpsc::channel(1);
     let (tx_out, rx_out) = tokio::sync::watch::channel("".into());
@@ -199,7 +199,7 @@ impl Client {
         }
     }
 }
-// api:1 ends here
+// client:1 ends here
 
 // [[file:../vasp-tools.note::*test][test:1]]
 mod test {
