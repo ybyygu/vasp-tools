@@ -3,7 +3,7 @@ use crate::common::*;
 use gut::fs::*;
 use structopt::*;
 
-use crate::task::Session;
+use crate::session::Session;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*vasp][vasp:1]]

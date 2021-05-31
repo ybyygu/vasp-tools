@@ -1,8 +1,8 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use crate::common::*;
-use std::process::Command;
+use crate::session::Session;
 
-use crate::task::Session;
+use std::process::Command;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
