@@ -3,6 +3,8 @@ use crate::common::*;
 use std::process::Command;
 // use crate::session::Session;
 use session::{Session, SessionHandler};
+
+use std::sync::Arc;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*base][base:1]]
@@ -20,11 +22,8 @@ enum Control {
 #[derive(Debug, Clone)]
 enum InteractionProgress {
     Output(String),
-    Running(SessionHandler),
 }
 
-// struct InteractionProgress(String, u32);
-// type InteractionProgress = String;
 type RxInteractionOutput = tokio::sync::watch::Receiver<InteractionProgress>;
 type TxInteractionOutput = tokio::sync::watch::Sender<InteractionProgress>;
 type RxInteraction = tokio::sync::mpsc::Receiver<Interaction>;
@@ -41,10 +40,14 @@ pub struct Task {
     tx_out: Option<TxInteractionOutput>,
     // child process
     session: Option<Session>,
+
+    notifier: Option<Arc<Notify>>,
 }
 // base:1 ends here
 
 // [[file:../vasp-tools.note::*core][core:1]]
+use tokio::sync::Notify;
+
 impl Task {
     /// Run child process in new session, and serve requests for interactions.
     pub async fn run_and_serve(&mut self) -> Result<()> {
@@ -52,43 +55,10 @@ impl Task {
         let rx_int = self.rx_int.take().context("no rx_int")?;
         let rx_ctl = self.rx_ctl.take().context("no rx_ctl")?;
         let tx_out = self.tx_out.take().context("no tx_out")?;
-
-        handle_interaction_new(&mut session, rx_int, tx_out, rx_ctl).await?;
+        let notifier = self.notifier.clone();
+        handle_interaction_new(&mut session, rx_int, tx_out, rx_ctl, notifier).await?;
         Ok(())
     }
-}
-
-/// Interact with child process: write stdin with `input` and read in stdout by
-/// `read_pattern`
-async fn handle_interaction(
-    session: &mut Session,
-    mut rx_int: RxInteraction,
-    mut tx_out: TxInteractionOutput,
-) -> Result<()> {
-    for i in 0.. {
-        // get parameters for interaction with child process
-        let Interaction(input, read_pattern) = rx_int
-            .recv()
-            .await
-            .ok_or(format_err!("Interaction channel was closed."))?;
-        info!("Received client {} interation request", i);
-
-        // the session is started
-        let handler = if let Some(sid) = session.id() {
-            SessionHandler::new(sid)
-        } else {
-            let sid = session.spawn_new()?;
-            SessionHandler::new(sid)
-        };
-        tx_out.send(InteractionProgress::Running(handler))?;
-        let out = session.interact(&input, &read_pattern)?;
-        info!("Computation done: sent client {} the result ({} bytes)", i, out.len());
-        // we get interaction output
-        let int_out = InteractionProgress::Output(out);
-        tx_out.send(int_out).context("send stdout using tx_out")?;
-    }
-
-    Ok(())
 }
 
 /// Interact with child process: write stdin with `input` and read in stdout by
@@ -98,9 +68,8 @@ async fn handle_interaction_new(
     mut rx_int: RxInteraction,
     mut tx_out: TxInteractionOutput,
     mut rx_ctl: RxControl,
+    notifier: Option<Arc<Notify>>,
 ) -> Result<()> {
-    use std::sync::Arc;
-
     let mut session_handler = None;
     for i in 0.. {
         tokio::select! {
@@ -111,11 +80,15 @@ async fn handle_interaction_new(
                     let sid = session.spawn_new()?;
                     SessionHandler::new(sid)
                 };
-                session_handler = Some(std::sync::Arc::new(handler));
+                session_handler = Some(Arc::new(handler));
                 let Interaction(input, read_pattern) = int;
                 let out = session.interact(&input, &read_pattern)?;
+                info!("coffee break for computation ... {:?}", i);
+                // tokio::time::sleep(std::time::Duration::from_secs_f64(0.1)).await;
                 let int_out = InteractionProgress::Output(out);
                 tx_out.send(int_out).context("send stdout using tx_out")?;
+                notifier.as_ref().unwrap().notify_waiters();
+                // tokio::time::sleep(std::time::Duration::from_secs_f64(0.1)).await;
                 info!("Computation done: sent client {} the result", i);
             }
             Some(ctl) = rx_ctl.recv() => {
@@ -261,6 +234,9 @@ mod session {
 
         /// Terminate child processes in a session.
         pub fn terminate(&self) -> Result<()> {
+            // If process was paused, terminate it directly could be deadlock
+            self.signal("SIGCONT");
+            std::thread::sleep(std::time::Duration::from_secs_f64(0.2));
             self.signal("SIGTERM")
         }
 
@@ -304,15 +280,16 @@ impl Drop for Task {
 }
 // drop:1 ends here
 
-// [[file:../vasp-tools.note::*client][client:1]]
-#[derive(Clone)]
+// [[file:../vasp-tools.note::*api][api:1]]
+use tokio_stream::{wrappers::WatchStream, StreamExt};
+
 pub struct Client {
-    session: Option<SessionHandler>,
     tx_ctl: TxControl,
     // for interaction with child process
     tx_int: TxInteraction,
     // for getting child process's stdout
     rx_out: RxInteractionOutput,
+    notifier: Arc<Notify>,
 }
 
 pub fn new_shared_task(command: Command) -> (Task, Client) {
@@ -320,27 +297,41 @@ pub fn new_shared_task(command: Command) -> (Task, Client) {
     let (tx_ctl, rx_ctl) = tokio::sync::mpsc::channel(1);
     let (tx_out, rx_out) = tokio::sync::watch::channel(InteractionProgress::Output("".into()));
 
+    let notify = Arc::new(Notify::new());
+    let notify2 = notify.clone();
     let session = Session::new(command);
     let server = Task {
         rx_int: rx_int.into(),
         rx_ctl: rx_ctl.into(),
         tx_out: tx_out.into(),
         session: session.into(),
+        notifier: Some(notify),
     };
+    let rx_out_stream = WatchStream::new(rx_out.clone());
     let client = Client {
-        session: None,
         tx_int,
         tx_ctl,
         rx_out,
+        notifier: notify2,
     };
 
     (server, client)
 }
-// client:1 ends here
 
-// [[file:../vasp-tools.note::*v2][v2:1]]
 impl Client {
+    /// Create a shared task in concurrency environment
+    pub fn new_copy(&self) -> Self {
+        Self {
+            tx_int: self.tx_int.clone(),
+            tx_ctl: self.tx_ctl.clone(),
+            rx_out: self.rx_out.clone(),
+            notifier: self.notifier.clone(),
+        }
+    }
+
     pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
+        // discard the initial value
+        // let _ = self.recv_stdout().await?;
         self.tx_int.send(Interaction(input.into(), read_pattern.into())).await?;
         let out = self.recv_stdout().await?;
         Ok(out)
@@ -366,26 +357,21 @@ impl Client {
 
     /// return the output already read in from child process's stdout
     async fn recv_stdout(&mut self) -> Result<String> {
-        // continue to receive until we get the output
-        loop {
-            if self.rx_out.changed().await.is_ok() {
-                match &*self.rx_out.borrow() {
-                    InteractionProgress::Output(out) => {
-                        info!("got output ({} bytes)", out.len());
-                        return Ok(out.to_string());
-                    }
-                    InteractionProgress::Running(session) => {
-                        info!("session started: {:?}", session);
-                        self.session = session.clone().into();
-                    }
+        self.notifier.notified().await;
+        info!("got notification for compuation done");
+
+        if self.rx_out.changed().await.is_ok() {
+            match &*self.rx_out.borrow() {
+                InteractionProgress::Output(out) => {
+                    info!("got output ({} bytes)", out.len());
+                    return Ok(out.to_string());
                 }
-            } else {
-                bail!("tx handler has been dropped!");
             }
         }
+        bail!("todo");
     }
 }
-// v2:1 ends here
+// api:1 ends here
 
 // [[file:../vasp-tools.note::*test][test:1]]
 mod test {
@@ -443,7 +429,7 @@ mod test {
                     }
                 },
                 _ = async {
-                    let mut task = client.clone();
+                    let mut task = client.new_copy();
                     if let Err(e) = handle_vasp_interaction(&mut task).await {
                         error!("Task client failure: {:?}", e);
                     }
@@ -455,3 +441,34 @@ mod test {
     }
 }
 // test:1 ends here
+
+// [[file:../vasp-tools.note::*test_tokio_watch][test_tokio_watch:1]]
+#[tokio::test]
+async fn test_tokio_watch() -> Result<()> {
+    gut::cli::setup_logger_for_test();
+
+    use tokio::sync::watch;
+
+    let (tx, mut rx) = watch::channel("hello");
+    let h1 = tokio::spawn(async move {
+        log_dbg!();
+        while rx.changed().await.is_ok() {
+            info!("received = {:?}", *rx.borrow());
+        }
+    });
+    let h2 = tokio::spawn(async move {
+        use tokio::time::{sleep, Duration};
+
+        sleep(Duration::from_millis(100)).await;
+        tx.send("world1");
+        sleep(Duration::from_millis(100)).await;
+        tx.send("world2");
+        sleep(Duration::from_millis(100)).await;
+        tx.send("world3");
+    });
+
+    tokio::join!(h1, h2);
+
+    Ok(())
+}
+// test_tokio_watch:1 ends here

@@ -134,6 +134,10 @@ struct ClientCli {
     #[structopt(short = "u", default_value = "vasp.sock")]
     socket_file: PathBuf,
 
+    /// Control child process for saving CPU times when idle
+    #[structopt(long)]
+    control: bool,
+
     /// Stop VASP server
     #[structopt(short = "q")]
     quit: bool,
@@ -163,7 +167,9 @@ pub async fn vasp_client_enter_main() -> Result<()> {
         "".into()
     } else {
         // resume paused calculation
-        client.try_resume().await?;
+        if args.control {
+            client.try_resume().await?;
+        }
         // redirect scaled positions to server for interactive VASP calculations
         info!("Send scaled coordinates to interactive VASP server.");
         crate::vasp::stdin::get_scaled_positions_from_stdin()?
@@ -178,7 +184,9 @@ pub async fn vasp_client_enter_main() -> Result<()> {
     println!("{}", mp);
 
     // pause VASP to avoid wasting CPU times, which will be resumed on next calculation
-    client.try_pause().await?;
+    if args.control {
+        client.try_pause().await?;
+    }
 
     Ok(())
 }

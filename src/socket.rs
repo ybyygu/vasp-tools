@@ -246,7 +246,7 @@ mod server {
                         // wait for client requests
                         let mut client_stream = self.wait_for_client_stream().await.unwrap();
                         info!("new incoming connection {}", i);
-                        let task = client.clone();
+                        let task = client.new_copy();
                         // spawn a new task for each client
                         tokio::spawn(async move { handle_client_requests(client_stream, task).await });
                     }
