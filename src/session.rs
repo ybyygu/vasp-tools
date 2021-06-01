@@ -6,16 +6,17 @@
 use crate::common::*;
 use crate::process::ProcessGroupExt;
 
+use shared_child::SharedChild;
 use std::io::{BufRead, BufReader};
 use std::process::Command;
-use std::process::{Child, ChildStdin, ChildStdout};
+use std::process::{Child, ChildStdin, ChildStdout, ExitStatus};
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*base][base:1]]
-/// Run child processes in a new session group for easy control
+/// Run child processes in a new session for easy control
 pub struct Session {
     command: Option<Command>,
-    session: Option<Child>,
+    session: Option<SessionHandler>,
     stream0: Option<ChildStdin>,
     stream1: Option<std::io::Lines<BufReader<ChildStdout>>>,
 }
@@ -47,28 +48,13 @@ impl Session {
         }
     }
 
-    fn quit(&mut self) -> Result<()> {
-        if let Some(child) = self.session.as_mut() {
-            match child.try_wait() {
-                Ok(None) => {
-                    info!("child process is still running, force to terminate ...");
-                    let h = SessionHandler::new(child.id());
-                    h.terminate()?;
-                }
-                Ok(Some(n)) => {
-                    info!("child process exited with code: {}", n);
-                }
-                Err(e) => {
-                    error!("failed to check child process'status: {:?}", e);
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Interact with child process's stdin using `input` and return stdout
-    /// read-in until the line matching `read_pattern`. The child process will
-    /// be automatically spawned if necessary.
+    /// read-in until the line matching `read_pattern`. The `spawn` method
+    /// should be called before `interact`.
+    ///
+    /// # Panics
+    ///
+    /// * panic if child process is not spawned yet.
     pub fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
         use std::io::prelude::*;
 
@@ -99,23 +85,30 @@ impl Session {
         return Ok(txt);
     }
 
-    /// Return child process's session ID, useful for killing all child
-    /// processes using `pkill` command.
+    /// Return child process's session ID.
     pub fn id(&self) -> Option<u32> {
         self.session.as_ref().map(|s| s.id())
     }
 
-    pub(crate) fn spawn_new(&mut self) -> Result<u32> {
+    /// Spawn child process in new session (progress group), and return a
+    /// `SessionHandler` that can be shared between threads.
+    pub fn spawn(&mut self) -> Result<SessionHandler> {
         let command = self.command.take().unwrap();
         let mut child = create_new_session(command)?;
         self.stream0 = child.stdin.take().unwrap().into();
         let stdout = child.stdout.take().unwrap();
         self.stream1 = BufReader::new(stdout).lines().into();
-        self.session = child.into();
-
+        let h = SessionHandler::new(child);
+        self.session = h.clone().into();
         let pid = self.id().unwrap();
         info!("start child process in new session: {:?}", pid);
-        Ok(pid)
+
+        Ok(h)
+    }
+
+    /// Create a session handler for shared between threads.
+    pub fn get_handler(&self) -> Option<SessionHandler> {
+        self.session.clone()
     }
 }
 
@@ -131,38 +124,82 @@ fn signal_processes_by_session_id(sid: u32, signal: &str) -> Result<()> {
 // core:1 ends here
 
 // [[file:../vasp-tools.note::*handler][handler:1]]
+/// A simple wrapper around `shared_child::SharedChild`
+///
+/// Control progress group in session using external `pkill` command.
 #[derive(Debug, Clone)]
-/// Control progress group in session using external `pkill` command
-pub(crate) struct SessionHandler {
-    pid: u32,
+pub struct SessionHandler {
+    inner: std::sync::Arc<SharedChild>,
 }
 
 impl SessionHandler {
-    /// Create a SessionHandler for process `pid`
-    pub fn new(pid: u32) -> Self {
-        Self { pid }
+    /// Create a `SessionHandler` from std::process::Child
+    pub fn new(s: Child) -> Self {
+        Self {
+            inner: std::sync::Arc::new(SharedChild::new(s)),
+        }
     }
 }
 
 impl SessionHandler {
     /// send signal to child processes: SIGINT, SIGTERM, SIGCONT, SIGSTOP
     fn signal(&self, sig: &str) -> Result<()> {
-        info!("signal process {} with {}", self.pid, sig);
-        signal_processes_by_session_id(self.pid, sig)?;
+        // only using pkill when child process is still running
+        match self.try_wait() {
+            Ok(None) => {
+                let pid = self.id();
+                info!("signal process {} with {}", pid, sig);
+                signal_processes_by_session_id(pid, sig)?;
+            }
+            Ok(Some(n)) => {
+                info!("child process already exited with code: {}", n);
+            }
+            Err(e) => {
+                error!("failed to check child process'status: {:?}", e);
+            }
+        }
         Ok(())
+    }
+
+    /// Return the child process ID.
+    pub fn id(&self) -> u32 {
+        self.inner.id()
+    }
+
+    /// Return the child’s exit status if it has already exited. If the child is
+    /// still running, return Ok(None).
+    pub fn try_wait(&self) -> Result<Option<ExitStatus>> {
+        let o = self.inner.try_wait()?;
+        Ok(o)
+    }
+
+    /// Wait for the child to exit, blocking the current thread, and return its
+    /// exit status.
+    pub fn wait(&self) -> Result<ExitStatus> {
+        let o = self.inner.wait()?;
+        info!("child process exited with code: {:?}", o);
+        Ok(o)
     }
 
     /// Terminate child processes in a session.
     pub fn terminate(&self) -> Result<()> {
-        // If process was paused, terminate it directly could be deadlock
-        self.signal("SIGCONT");
+        // If process was paused, terminate it directly could result a deadlock or zombie.
+        self.signal("SIGCONT")?;
         sleep(0.2);
-        self.signal("SIGTERM")
+        self.signal("SIGTERM")?;
+        self.wait()?;
+        // according to the doc of `SharedChild`, we should wait for it to exit.
+        Ok(())
     }
 
     /// Kill processes in a session.
     pub fn kill(&self) -> Result<()> {
-        self.signal("SIGKILL")
+        self.signal("SIGCONT")?;
+        sleep(0.2);
+        self.signal("SIGKILL")?;
+        // according to the doc of `SharedChild`, we should wait for it to exit.
+        self.wait()?;
+        Ok(())
     }
 
     /// Resume processes in a session.
@@ -177,75 +214,43 @@ impl SessionHandler {
 }
 // handler:1 ends here
 
-// [[file:../vasp-tools.note::*shared child][shared child:1]]
-mod shared {
-    use super::*;
-    use shared_child::unix::SharedChildExt;
-    use shared_child::SharedChild;
-
-    #[derive(Clone)]
-    pub struct ProcessHandle {
-        process: std::sync::Arc<SharedChild>,
-    }
-
-    impl ProcessHandle {
-        pub fn new(mut command: &mut Command) -> Result<ProcessHandle> {
-            Ok(ProcessHandle {
-                process: std::sync::Arc::new(SharedChild::spawn(&mut command)?),
-            })
-        }
-
-        /// Kill child process
-        pub fn kill(&self) {
-            let _ = self.process.kill();
-        }
-
-        /// Return child process id
-        pub fn pid(&self) -> u32 {
-            self.process.id()
-        }
-
-        /// Check if child process still running
-        pub fn check_if_running(&self) -> Result<()> {
-            let pid = self.pid();
-
-            let status = self
-                .process
-                .try_wait()
-                .with_context(|| format!("Failed to wait for process {:?}", pid))?;
-            let _ = status.ok_or(format_err!("Process [pid={}] is still running.", pid))?;
-
-            Ok(())
-        }
-
-        pub fn terminate(&self) -> Result<()> {
-            self.process.send_signal(libc::SIGTERM)?;
-            // Error means, that probably process was already terminated, because:
-            // - We have permissions to send signal, since we created this process.
-            // - We specified correct signal SIGTERM.
-            // But better let's check.
-            self.check_if_running()?;
-
-            Ok(())
-        }
-
-        pub fn wait_until_finished(self) -> Result<()> {
-            // On another thread, wait on the child process.
-            let child_arc_clone = self.process.clone();
-            let thread = std::thread::spawn(move || child_arc_clone.wait().unwrap());
-
-            Ok(())
-        }
-    }
-}
-// shared child:1 ends here
-
 // [[file:../vasp-tools.note::*drop][drop:1]]
 impl Drop for Session {
     fn drop(&mut self) {
-        if let Err(e) = self.quit() {
-            error!("drop session error: {:?}", e);
+        if let Some(s) = self.session.as_ref() {
+            if let Err(e) = s.terminate() {
+                error!("drop session error: {:?}", e);
+            }
         }
     }
 }
 // drop:1 ends here
+
+// [[file:../vasp-tools.note::*pub][pub:1]]
+
+// pub:1 ends here
+
+// [[file:../vasp-tools.note::*test][test:1]]
+#[test]
+fn test_interactive_vasp() -> Result<()> {
+    let read_pattern = "POSITIONS: reading from stdin";
+
+    // the input for writing into stdin
+    let positions = include_str!("../tests/files/interactive_positions.txt");
+
+    let vasp = std::process::Command::new("fake-vasp");
+    let mut s = Session::new(vasp);
+    let h = s.spawn()?;
+
+    let o = s.interact("", read_pattern)?;
+    let (energy1, forces1) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+    println!("{}", o);
+    let o = s.interact(&positions, read_pattern)?;
+    let (energy2, forces2) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+    assert_eq!(energy1, energy2);
+    
+    h.terminate()?;
+
+    Ok(())
+}
+// test:1 ends here

@@ -71,17 +71,15 @@ mod task {
         mut rx_ctl: RxControl,
         notifier: Arc<Notify>,
     ) -> Result<()> {
-        let mut session_handler = None;
+        let mut session_handler = session.get_handler();
         for i in 0.. {
             tokio::select! {
                 Some(int) = rx_int.recv() => {
-                    let handler = if let Some(sid) = session.id() {
-                        SessionHandler::new(sid)
-                    } else {
-                        let sid = session.spawn_new()?;
-                        SessionHandler::new(sid)
-                    };
-                    session_handler = Some(Arc::new(handler));
+                    // let handler = session.get_handler();
+                    if session_handler.is_none() {
+                        session_handler = session.spawn()?.into();
+                    }
+                    assert!(session_handler.is_some());
                     let Interaction(input, read_pattern) = int;
                     let out = session.interact(&input, &read_pattern)?;
                     debug!("coffee break for computation ... {:?}", i);
@@ -107,7 +105,7 @@ mod task {
         Ok(())
     }
 
-    fn control_session(s: Option<&Arc<SessionHandler>>, ctl: Control) -> Result<bool> {
+    fn control_session(s: Option<&SessionHandler>, ctl: Control) -> Result<bool> {
         let s = s.as_ref().ok_or(format_err!("control error: session not started!"))?;
 
         match ctl {
