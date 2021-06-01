@@ -207,15 +207,13 @@ mod server {
             let ctrl_c = tokio::signal::ctrl_c();
 
             // state will be shared with different tasks
-            let command = Command::new(program);
-            let (mut server, client) = new_interactive_task(command);
+            let (mut server, client) = new_interactive_task(program);
             let h = server.run_and_serve();
             tokio::pin!(h);
 
             tokio::select! {
                 _ = ctrl_c => {
                     info!("User interrupted. Shutting down ...");
-                    client.clone().terminate().await?;
                 },
                 res = &mut h => {
                     if let Err(e) = res {

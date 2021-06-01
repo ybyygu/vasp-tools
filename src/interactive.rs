@@ -85,7 +85,6 @@ mod task {
                     let Interaction(input, read_pattern) = int;
                     let out = session.interact(&input, &read_pattern)?;
                     debug!("coffee break for computation ... {:?}", i);
-                    // tokio::time::sleep(std::time::Duration::from_secs_f64(0.1)).await;
                     tx_out.send(out).context("send stdout using tx_out")?;
                     &notifier.notify_waiters();
                     info!("Computation done: sent client {} the result", i);
@@ -203,8 +202,7 @@ mod test {
         gut::cli::setup_logger_for_test();
 
         // test control signal
-        let command = Command::new("fake-vasp");
-        let (mut server, mut client) = new_interactive_task(command);
+        let (mut server, mut client) = new_interactive_task("fake-vasp".as_ref());
         tokio::spawn(async move {
             server.run_and_serve().await.unwrap();
         });
@@ -219,8 +217,7 @@ mod test {
     #[tokio::test]
     async fn test_task2() -> Result<()> {
         gut::cli::setup_logger_for_test();
-        let command = Command::new("fake-vasp");
-        let (mut server, mut client) = new_interactive_task(command);
+        let (mut server, mut client) = new_interactive_task("fake-vasp".as_ref());
 
         // start the server side
         let h = server.run_and_serve();
@@ -258,7 +255,9 @@ mod test {
 // [[file:../vasp-tools.note::*pub][pub:1]]
 /// Create task server and client. The client can be cloned and used in
 /// concurrent environment
-pub(crate) fn new_interactive_task(command: Command) -> (Task, Client) {
+pub(crate) fn new_interactive_task(program: &Path) -> (Task, Client) {
+    let command = Command::new(program);
+
     let (tx_int, rx_int) = tokio::sync::mpsc::channel(1);
     let (tx_ctl, rx_ctl) = tokio::sync::mpsc::channel(1);
     let (tx_out, rx_out) = tokio::sync::watch::channel("".into());
