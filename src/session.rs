@@ -51,7 +51,9 @@ impl Session {
         if let Some(child) = self.session.as_mut() {
             match child.try_wait() {
                 Ok(None) => {
-                    info!("child process is still running?");
+                    info!("child process is still running, force to terminate ...");
+                    let h = SessionHandler::new(child.id());
+                    h.terminate()?;
                 }
                 Ok(Some(n)) => {
                     info!("child process exited with code: {}", n);
@@ -117,7 +119,6 @@ impl Session {
     }
 }
 
-
 /// Call `pkill` to send signal to related processes
 fn signal_processes_by_session_id(sid: u32, signal: &str) -> Result<()> {
     debug!("kill session {} using signal {:?}", sid, signal);
@@ -175,6 +176,69 @@ impl SessionHandler {
     }
 }
 // handler:1 ends here
+
+// [[file:../vasp-tools.note::*shared child][shared child:1]]
+mod shared {
+    use super::*;
+    use shared_child::unix::SharedChildExt;
+    use shared_child::SharedChild;
+
+    #[derive(Clone)]
+    pub struct ProcessHandle {
+        process: std::sync::Arc<SharedChild>,
+    }
+
+    impl ProcessHandle {
+        pub fn new(mut command: &mut Command) -> Result<ProcessHandle> {
+            Ok(ProcessHandle {
+                process: std::sync::Arc::new(SharedChild::spawn(&mut command)?),
+            })
+        }
+
+        /// Kill child process
+        pub fn kill(&self) {
+            let _ = self.process.kill();
+        }
+
+        /// Return child process id
+        pub fn pid(&self) -> u32 {
+            self.process.id()
+        }
+
+        /// Check if child process still running
+        pub fn check_if_running(&self) -> Result<()> {
+            let pid = self.pid();
+
+            let status = self
+                .process
+                .try_wait()
+                .with_context(|| format!("Failed to wait for process {:?}", pid))?;
+            let _ = status.ok_or(format_err!("Process [pid={}] is still running.", pid))?;
+
+            Ok(())
+        }
+
+        pub fn terminate(&self) -> Result<()> {
+            self.process.send_signal(libc::SIGTERM)?;
+            // Error means, that probably process was already terminated, because:
+            // - We have permissions to send signal, since we created this process.
+            // - We specified correct signal SIGTERM.
+            // But better let's check.
+            self.check_if_running()?;
+
+            Ok(())
+        }
+
+        pub fn wait_until_finished(self) -> Result<()> {
+            // On another thread, wait on the child process.
+            let child_arc_clone = self.process.clone();
+            let thread = std::thread::spawn(move || child_arc_clone.wait().unwrap());
+
+            Ok(())
+        }
+    }
+}
+// shared child:1 ends here
 
 // [[file:../vasp-tools.note::*drop][drop:1]]
 impl Drop for Session {

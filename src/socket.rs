@@ -215,7 +215,7 @@ mod server {
             tokio::select! {
                 _ = ctrl_c => {
                     info!("User interrupted. Shutting down ...");
-                    // client.clone().terminate().await?;
+                    client.clone().terminate().await?;
                 },
                 res = &mut h => {
                     if let Err(e) = res {
