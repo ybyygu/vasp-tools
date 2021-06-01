@@ -65,7 +65,7 @@ pub fn simulate_interactive_vasp() -> Result<()> {
             handler.read_line(&mut positions)?;
         }
         // make it slower, 0.1 second delay
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        sleep(0.1);
         print!("{}", part1);
         println!("{:4} {}", i, energy);
     }

@@ -156,7 +156,7 @@ impl SessionHandler {
     pub fn terminate(&self) -> Result<()> {
         // If process was paused, terminate it directly could be deadlock
         self.signal("SIGCONT");
-        std::thread::sleep(std::time::Duration::from_secs_f64(0.2));
+        sleep(0.2);
         self.signal("SIGTERM")
     }
 

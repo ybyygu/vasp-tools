@@ -14,6 +14,11 @@ mod vasp;
 pub(crate) mod common {
     pub use gut::prelude::*;
     pub use std::path::{Path, PathBuf};
+
+    /// Sleep a few seconds
+    pub fn sleep(t: f64) {
+        std::thread::sleep(std::time::Duration::from_secs_f64(t));
+    }
 }
 // mods:1 ends here
 
