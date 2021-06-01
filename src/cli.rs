@@ -171,6 +171,9 @@ pub async fn vasp_client_enter_main() -> Result<()> {
     let args = ClientCli::from_args();
     args.verbose.setup_logger();
 
+    // wait a moment for socke file ready
+    let timeout = 5;
+    wait_file(&args.socket_file, timeout)?;
     let mut client = Client::connect(&args.socket_file).await?;
 
     if args.quit {
