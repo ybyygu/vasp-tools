@@ -277,3 +277,70 @@ pub mod stdout {
     }
 }
 // stdout:1 ends here
+
+// [[file:../vasp-tools.note::*outcar][outcar:1]]
+pub mod outcar {
+    use super::*;
+
+    use text_parser::TextReader;
+
+    #[derive(Debug, Default, Clone)]
+    struct OptIter {
+        i: usize,
+        energy: Option<f64>,
+        // number of SCF for this opt step
+        nscf: Option<usize>,
+        volume: Option<f64>,
+        mag: Option<f64>,
+    }
+
+    /// Parse OUTCAR file
+    pub fn summarize_outcar(f: &Path) -> Result<()> {
+        use std::io::BufRead;
+        let r = TextReader::from_path(f)?;
+        let parts = r.partitions_preceded(|line| line.contains("FREE ENERGIE OF THE ION-ELECTRON SYSTEM"));
+
+        for (i, p) in parts.skip(1).enumerate() {
+            let mut part = OptIter::default();
+            part.i = i;
+            let mut nscf = 0;
+            for line in p.lines() {
+                if line.contains("free  energy   TOTEN  =") {
+                    let attrs: Vec<_> = line.split_whitespace().collect();
+                    if attrs.len() != 6 {
+                        bail!("unexpected line: {:?}", attrs);
+                    }
+                    part.energy = attrs[4].parse().ok();
+                } else if line.contains("-- Iteration") {
+                    nscf += 1;
+                } else if line.contains("volume of cell :") {
+                    let attrs: Vec<_> = line.split_whitespace().collect();
+                    assert_eq!(attrs.len(), 5);
+                    part.volume = attrs[4].parse().ok();
+                } else if line.starts_with(" number of electron") {
+                    //  number of electron     699.9999451 magnetization     114.0418239
+                    let attrs: Vec<_> = line.split_whitespace().collect();
+                    assert_eq!(attrs.len(), 6);
+                    part.mag = attrs[5].parse().ok();
+                }
+            }
+            part.nscf = nscf.into();
+            show_iter(&part);
+        }
+        Ok(())
+    }
+
+    fn show_iter(p: &OptIter) {
+        let e = p.energy.map(|e| format!("{:.6}", e)).unwrap_or(format!("{:}", "--"));
+        let nscf = p.nscf.map(|n| format!("{:4}", n)).unwrap_or(format!("{:4}", "--"));
+        let mag = p.mag.map(|m| format!("{:.2}", m)).unwrap_or(format!("{:4}", "--"));
+        println!("{:<6} Energy: {:12} SCF: {:} Mag: {:6}", p.i, e, nscf, mag);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_outcar_parser() {
+        summarize_outcar("tests/files/OUTCAR".as_ref());
+    }
+}
+// outcar:1 ends here

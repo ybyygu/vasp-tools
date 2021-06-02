@@ -186,3 +186,10 @@ pub async fn vasp_client_enter_main() -> Result<()> {
     Ok(())
 }
 // client:1 ends here
+
+// [[file:../vasp-tools.note::*summary][summary:1]]
+pub fn vasp_summary_enter_main() -> Result<()> {
+    crate::vasp::outcar::summarize_outcar("OUTCAR".as_ref())?;
+    Ok(())
+}
+// summary:1 ends here

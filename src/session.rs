@@ -9,7 +9,7 @@ use crate::common::*;
 // [[file:../vasp-tools.note::*base][base:1]]
 /// Call `pkill` to send signal to related processes
 fn signal_processes_by_session_id(sid: u32, signal: &str) -> Result<()> {
-    debug!("kill session {} using signal {:?}", sid, signal);
+    trace!("Kill session {} using signal {:?}", sid, signal);
     duct::cmd!("pkill", "--signal", signal, "-s", sid.to_string())
         .unchecked()
         .run()?;

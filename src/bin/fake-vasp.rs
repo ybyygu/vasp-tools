@@ -1,4 +1,4 @@
-// [[file:../../vasp-tools.note::*bin/run-vasp.rs][bin/run-vasp.rs:1]]
+// [[file:../../vasp-tools.note::*bin/fake-vasp.rs][bin/fake-vasp.rs:1]]
 use gut::prelude::*;
 
 fn main() -> Result<()> {
@@ -6,4 +6,4 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-// bin/run-vasp.rs:1 ends here
+// bin/fake-vasp.rs:1 ends here
