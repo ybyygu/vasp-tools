@@ -214,6 +214,8 @@ mod server {
             tokio::select! {
                 _ = ctrl_c => {
                     info!("User interrupted. Shutting down ...");
+                    // It is hard to exit VASP cleanly
+                    // crate::vasp::stopcar::write()?;
                 },
                 res = &mut h => {
                     if let Err(e) = res {
@@ -234,12 +236,6 @@ mod server {
                     info!("main loop done?");
                 }
             }
-
-            // FIXME: VASP logic should not be here
-            // shutdown VASP cleanly
-            crate::vasp::stopcar::write()?;
-            info!("Wait one second for VASP to exit gracefully ...");
-            sleep(1.0);
 
             Ok(())
         }
