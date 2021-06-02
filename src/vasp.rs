@@ -141,6 +141,7 @@ pub mod stopcar {
     use super::*;
 
     pub fn write() -> Result<()> {
+        info!("Writing STOPCAR ...");
         gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;
 
         Ok(())

@@ -57,14 +57,14 @@ mod task {
             let rx_ctl = self.rx_ctl.take().context("no rx_ctl")?;
             let tx_out = self.tx_out.take().context("no tx_out")?;
             let notifier = self.notifier.clone();
-            handle_interaction_new(&mut session, rx_int, tx_out, rx_ctl, notifier).await?;
+            handle_interaction(&mut session, rx_int, tx_out, rx_ctl, notifier).await?;
             Ok(())
         }
     }
 
     /// Interact with child process: write stdin with `input` and read in stdout by
     /// `read_pattern`
-    async fn handle_interaction_new(
+    async fn handle_interaction(
         session: &mut Session,
         mut rx_int: RxInteraction,
         mut tx_out: TxInteractionOutput,

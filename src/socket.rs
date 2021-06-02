@@ -235,6 +235,12 @@ mod server {
                 }
             }
 
+            // FIXME: VASP logic should not be here
+            // shutdown VASP cleanly
+            crate::vasp::stopcar::write()?;
+            info!("Wait one second for VASP to exit gracefully ...");
+            sleep(1.0);
+
             Ok(())
         }
     }
