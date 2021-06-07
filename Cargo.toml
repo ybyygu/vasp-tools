@@ -18,7 +18,7 @@ psutil = "3"
 envfile = "0.2"
 chrono = "0.4"
 gut = { version = "0.1.5", package = "gchemol-gut" }
-text_parser = { version = "0.2.1", package = "gchemol-parser" }
+text_parser = { version = "0.3.0", package = "gchemol-parser" }
 rexpect = "0.4"
 libc = "0.2"
 shared_child = "0.3"

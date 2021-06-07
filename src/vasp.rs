@@ -214,8 +214,8 @@ pub mod stdout {
     //     -0.2907316    -0.2746548    -0.2782190
     //     -0.2941880    -0.0306001    -0.0141722
     fn read_forces(s: &str) -> IResult<&str, Vec<[f64; 3]>> {
-        let tag_forces = tag("FORCES:");
-        let read_forces = many1(read_xyz);
+        let mut tag_forces = tag("FORCES:");
+        let mut read_forces = many1(read_xyz);
 
         do_parse!(
             s,
