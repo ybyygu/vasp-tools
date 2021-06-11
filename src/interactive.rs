@@ -33,7 +33,7 @@ type TxControl = tokio::sync::mpsc::Sender<Control>;
 // base:1 ends here
 
 // [[file:../vasp-tools.note::*task][task:1]]
-pub struct Task {
+pub(crate) struct Task {
     // for receiving interaction message for child process
     rx_int: Option<RxInteraction>,
     // for controlling child process
@@ -127,7 +127,7 @@ mod task {
 
 // [[file:../vasp-tools.note::*client][client:1]]
 #[derive(Clone)]
-pub struct Client {
+pub(crate) struct Client {
     // for send client request for pause, resume, stop computation in server side
     tx_ctl: TxControl,
     // for interaction with child process in server side
@@ -181,6 +181,38 @@ mod client {
     }
 }
 // client:1 ends here
+
+// [[file:../vasp-tools.note::*pub][pub:1]]
+/// Create task server and client. The client can be cloned and used in
+/// concurrent environment
+pub(crate) fn new_interactive_task(program: &Path) -> (Task, Client) {
+    let command = Command::new(program);
+
+    let (tx_int, rx_int) = tokio::sync::mpsc::channel(1);
+    let (tx_ctl, rx_ctl) = tokio::sync::mpsc::channel(1);
+    let (tx_out, rx_out) = tokio::sync::watch::channel("".into());
+
+    let notify1 = Arc::new(Notify::new());
+    let notify2 = notify1.clone();
+    let session = Session::new(command);
+    let server = Task {
+        rx_int: rx_int.into(),
+        rx_ctl: rx_ctl.into(),
+        tx_out: tx_out.into(),
+        session: session.into(),
+        notifier: notify1,
+    };
+
+    let client = Client {
+        tx_int,
+        tx_ctl,
+        rx_out,
+        notifier: notify2,
+    };
+
+    (server, client)
+}
+// pub:1 ends here
 
 // [[file:../vasp-tools.note::*test][test:1]]
 #[cfg(test)]
@@ -249,35 +281,3 @@ mod test {
     }
 }
 // test:1 ends here
-
-// [[file:../vasp-tools.note::*pub][pub:1]]
-/// Create task server and client. The client can be cloned and used in
-/// concurrent environment
-pub(crate) fn new_interactive_task(program: &Path) -> (Task, Client) {
-    let command = Command::new(program);
-
-    let (tx_int, rx_int) = tokio::sync::mpsc::channel(1);
-    let (tx_ctl, rx_ctl) = tokio::sync::mpsc::channel(1);
-    let (tx_out, rx_out) = tokio::sync::watch::channel("".into());
-
-    let notify1 = Arc::new(Notify::new());
-    let notify2 = notify1.clone();
-    let session = Session::new(command);
-    let server = Task {
-        rx_int: rx_int.into(),
-        rx_ctl: rx_ctl.into(),
-        tx_out: tx_out.into(),
-        session: session.into(),
-        notifier: notify1,
-    };
-
-    let client = Client {
-        tx_int,
-        tx_ctl,
-        rx_out,
-        notifier: notify2,
-    };
-
-    (server, client)
-}
-// pub:1 ends here

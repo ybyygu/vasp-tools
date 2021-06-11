@@ -1,6 +1,5 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use crate::common::*;
-use crate::session::Session;
 
 use std::process::Command;
 // imports:1 ends here

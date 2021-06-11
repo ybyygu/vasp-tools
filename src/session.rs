@@ -21,7 +21,7 @@ fn signal_processes_by_session_id(sid: u32, signal: &str) -> Result<()> {
 // [[file:../vasp-tools.note::*core/std][core/std:1]]
 mod core_std {
     use super::*;
-    use gosh::runner::prelude::*;
+    use gosh::runner::prelude::*; // new_process_group
 
     use std::process::Command;
     use std::process::{Child, ExitStatus};
@@ -31,7 +31,7 @@ mod core_std {
         command: Option<Command>,
         stream0: Option<stdin::StdinWriter>,
         stream1: Option<stdout::StdoutReader>,
-        pub(super) session: Option<SessionHandler>,
+        session_handler: Option<SessionHandler>,
     }
 
     /// Spawn child process in a new session
@@ -53,9 +53,9 @@ mod core_std {
         pub fn new(command: Command) -> Self {
             Self {
                 command: command.into(),
-                session: None,
                 stream0: None,
                 stream1: None,
+                session_handler: None,
             }
         }
 
@@ -85,7 +85,7 @@ mod core_std {
 
         /// Return child process's session ID.
         pub fn id(&self) -> Option<u32> {
-            self.session.as_ref().map(|s| s.id())
+            self.session_handler.as_ref().map(|s| s.id())
         }
 
         /// Spawn child process in new session (progress group), and return a
@@ -96,7 +96,7 @@ mod core_std {
             self.stream0 = stdin::StdinWriter::new(child.stdin.take().unwrap()).into();
             self.stream1 = stdout::StdoutReader::new(child.stdout.take().unwrap()).into();
             let h = SessionHandler::new(child);
-            self.session = h.clone().into();
+            self.session_handler = h.clone().into();
             let pid = self.id().unwrap();
             info!("start child process in new session: {:?}", pid);
 
@@ -105,105 +105,11 @@ mod core_std {
 
         /// Create a session handler for shared between threads.
         pub fn get_handler(&self) -> Option<SessionHandler> {
-            self.session.clone()
+            self.session_handler.clone()
         }
     }
 }
 // core/std:1 ends here
-
-// [[file:../vasp-tools.note::*core/rexpect][core/rexpect:1]]
-mod core_rexpect {
-    use super::*;
-
-    use rexpect::session::PtySession;
-    use std::process::{ChildStdin, ChildStdout, Command};
-
-    /// Run child processes in a new session group for easy control
-    pub struct Session {
-        command: Option<Command>,
-        session: Option<PtySession>,
-    }
-
-    impl Session {
-        /// Create a new session for running `command`
-        pub fn new(command: Command) -> Self {
-            Self {
-                command: command.into(),
-                session: None,
-            }
-        }
-
-        /// Return child process's session ID, useful for killing all child
-        /// processes using `pkill` command.
-        pub fn id(&self) -> Option<u32> {
-            let sid = self.session.as_ref()?.process.child_pid.as_raw();
-
-            Some(sid as u32)
-        }
-
-        pub(crate) fn spawn(&mut self) -> Result<()> {
-            let command = self.command.take().unwrap();
-            self.session = create_new_session(command)?.into();
-            info!("start child process in new session: {:?}", self.id());
-            Ok(())
-        }
-
-        /// Interact with child process's stdin using `input` and return stdout
-        /// read-in until the line matching `read_pattern`. The child process will
-        /// be automatically spawned if necessary.
-        pub fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
-            use std::io::prelude::*;
-
-            // create a new session for the first time
-            if self.session.is_none() {
-                self.spawn()?;
-            }
-            let s = self.session.as_mut().expect("rexpect session");
-
-            // ignore interaction with empty input
-            if !input.is_empty() {
-                trace!("send input for child process's stdin ({} bytes)", input.len());
-                s.send_line(input)
-                    .map_err(|e| format_err!("send input error: {:?}", e))?;
-            }
-
-            trace!("send read pattern for child process's stdout: {:?}", read_pattern);
-            let mut txt = String::new();
-            while let Ok(line) = s.read_line() {
-                writeln!(&mut txt, "{}", line)?;
-                if line.contains(read_pattern) {
-                    break;
-                }
-            }
-
-            // NOTE: rexpect's reading behavior is weild
-            // let (txt, _) = s
-            //     .exp_any(vec![
-            //         rexpect::ReadUntil::String(read_pattern.into()),
-            //         rexpect::ReadUntil::EOF,
-            //     ])
-            //     // .exp_regex(read_pattern)
-            //     .map_err(|e| format_err!("read stdout error: {:?}", e))?;
-            // To make parsing results easier, we remove all `\r` chars, which is added by rexecpt for each line
-            // return Ok(txt.replace("\r", ""));
-
-            if txt.is_empty() {
-                bail!("Got nothing for pattern: {}", read_pattern);
-            }
-            return Ok(txt);
-        }
-    }
-
-    /// Spawn child process in a new session
-    fn create_new_session(command: Command) -> Result<PtySession> {
-        use rexpect::session::spawn_command;
-
-        let session = spawn_command(command, None).map_err(|e| format_err!("spawn command error: {:?}", e))?;
-
-        Ok(session)
-    }
-}
-// core/rexpect:1 ends here
 
 // [[file:../vasp-tools.note::*stdin][stdin:1]]
 mod stdin {
@@ -231,33 +137,6 @@ mod stdin {
     }
 }
 // stdin:1 ends here
-
-// [[file:../vasp-tools.note::*stdin/tokio][stdin/tokio:1]]
-mod stdin_tokio {
-    use super::*;
-    use tokio::process::ChildStdin;
-
-    pub struct StdinWriter {
-        stdin: ChildStdin,
-    }
-
-    impl StdinWriter {
-        pub fn new(stdin: ChildStdin) -> Self {
-            Self { stdin }
-        }
-
-        /// Write `input` into self's stdin
-        pub async fn write(&mut self, input: &str) -> Result<()> {
-            use tokio::io::AsyncWriteExt;
-
-            self.stdin.write_all(input.as_bytes()).await?;
-            self.stdin.flush().await?;
-
-            Ok(())
-        }
-    }
-}
-// stdin/tokio:1 ends here
 
 // [[file:../vasp-tools.note::*stdout][stdout:1]]
 mod stdout {
@@ -295,53 +174,14 @@ mod stdout {
 }
 // stdout:1 ends here
 
-// [[file:../vasp-tools.note::*stdout/tokio][stdout/tokio:1]]
-mod stdout_tokio {
-    use super::*;
-    use tokio::io;
-    use tokio::process::ChildStdout;
-
-    pub struct StdoutReader {
-        // reader: tokio::io::Lines<io::BufReader<ChildStdout>>,
-        // reader: ChildStdout,
-        reader: io::BufReader<ChildStdout>,
-    }
-
-    impl StdoutReader {
-        pub fn new(stdout: ChildStdout) -> Self {
-            use io::AsyncBufReadExt;
-
-            // let reader = io::BufReader::new(stdout).lines();
-            let reader = io::BufReader::new(stdout);
-            Self { reader }
-        }
-
-        /// Read stdout until finding a line containing the `pattern`
-        pub async fn read_until(&mut self, pattern: &str) -> Result<String> {
-            use io::AsyncBufReadExt;
-
-            info!("read stdout until finding pattern: {:?}", pattern);
-            let mut text = String::new();
-            loop {
-                let size = self.reader.read_line(&mut text).await?;
-                if size == 0 {
-                    break;
-                }
-                return Ok(text);
-            }
-            bail!("expected pattern not found!");
-        }
-    }
-}
-// stdout/tokio:1 ends here
-
-// [[file:../vasp-tools.note::*handler][handler:1]]
+// [[file:../vasp-tools.note::*session handler][session handler:1]]
 mod handler_std {
     use super::*;
     use shared_child::SharedChild;
     use std::process::{Child, Command, ExitStatus};
 
-    /// A simple wrapper around `shared_child::SharedChild`
+    /// A simple wrapper around `shared_child::SharedChild`, which is usually
+    /// created by `Session::spawn` method.
     ///
     /// Control progress group in session using external `pkill` command.
     #[derive(Debug, Clone)]
@@ -351,7 +191,7 @@ mod handler_std {
 
     impl SessionHandler {
         /// Create a `SessionHandler` from std::process::Child
-        pub fn new(s: Child) -> Self {
+        pub(super) fn new(s: Child) -> Self {
             Self {
                 inner: std::sync::Arc::new(SharedChild::new(s)),
             }
@@ -385,14 +225,14 @@ mod handler_std {
 
         /// Return the child’s exit status if it has already exited. If the child is
         /// still running, return Ok(None).
-        pub fn try_wait(&self) -> Result<Option<ExitStatus>> {
+        fn try_wait(&self) -> Result<Option<ExitStatus>> {
             let o = self.inner.try_wait()?;
             Ok(o)
         }
 
         /// Wait for the child to exit, blocking the current thread, and return its
         /// exit status.
-        pub fn wait(&self) -> Result<ExitStatus> {
+        fn wait(&self) -> Result<ExitStatus> {
             let o = self.inner.wait()?;
             info!("child process exited with code: {:?}", o);
             Ok(o)
@@ -410,7 +250,7 @@ mod handler_std {
         }
 
         /// Kill processes in a session.
-        pub fn kill(&self) -> Result<()> {
+        fn kill(&self) -> Result<()> {
             self.signal("SIGCONT")?;
             sleep(0.2);
             self.signal("SIGKILL")?;
@@ -430,12 +270,12 @@ mod handler_std {
         }
     }
 }
-// handler:1 ends here
+// session handler:1 ends here
 
 // [[file:../vasp-tools.note::*drop][drop:1]]
 impl Drop for Session {
     fn drop(&mut self) {
-        if let Some(s) = self.session.as_ref() {
+        if let Some(s) = self.get_handler() {
             if let Err(e) = s.terminate() {
                 error!("drop session error: {:?}", e);
             }
@@ -445,8 +285,8 @@ impl Drop for Session {
 // drop:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
-pub use core_std::*;
-pub use handler_std::*;
+pub use core_std::Session;
+pub use handler_std::SessionHandler;
 // pub:1 ends here
 
 // [[file:../vasp-tools.note::*test][test:1]]
