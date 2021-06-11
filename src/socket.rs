@@ -146,7 +146,7 @@ mod codec {
 mod server {
     use super::*;
     use crate::interactive::new_interactive_task;
-    use crate::interactive::Client as TaskClient;
+    use crate::interactive::TaskClient;
 
     use gut::fs::*;
     use tokio::net::{UnixListener, UnixStream};

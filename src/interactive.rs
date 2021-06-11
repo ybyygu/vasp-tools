@@ -32,8 +32,8 @@ type RxControl = tokio::sync::mpsc::Receiver<Control>;
 type TxControl = tokio::sync::mpsc::Sender<Control>;
 // base:1 ends here
 
-// [[file:../vasp-tools.note::*task][task:1]]
-pub(crate) struct Task {
+// [[file:../vasp-tools.note::*task server][task server:1]]
+pub(crate) struct TaskServer {
     // for receiving interaction message for child process
     rx_int: Option<RxInteraction>,
     // for controlling child process
@@ -46,10 +46,10 @@ pub(crate) struct Task {
     notifier: Arc<Notify>,
 }
 
-mod task {
+mod taskServer {
     use super::*;
 
-    impl Task {
+    impl TaskServer {
         /// Run child process in new session, and serve requests for interactions.
         pub async fn run_and_serve(&mut self) -> Result<()> {
             let mut session = self.session.as_mut().context("no running session")?;
@@ -123,11 +123,11 @@ mod task {
         Ok(false)
     }
 }
-// task:1 ends here
+// task server:1 ends here
 
-// [[file:../vasp-tools.note::*client][client:1]]
+// [[file:../vasp-tools.note::*task client][task client:1]]
 #[derive(Clone)]
-pub(crate) struct Client {
+pub(crate) struct TaskClient {
     // for send client request for pause, resume, stop computation in server side
     tx_ctl: TxControl,
     // for interaction with child process in server side
@@ -138,10 +138,10 @@ pub(crate) struct Client {
     notifier: Arc<Notify>,
 }
 
-mod client {
+mod Taskclient {
     use super::*;
 
-    impl Client {
+    impl TaskClient {
         pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
             self.tx_int.send(Interaction(input.into(), read_pattern.into())).await?;
             let out = self.recv_stdout().await?;
@@ -168,9 +168,9 @@ mod client {
 
         /// return the output already read in from child process's stdout
         async fn recv_stdout(&mut self) -> Result<String> {
+            // wait for server's notification for job done
             self.notifier.notified().await;
-            info!("got notification for compuation done");
-
+            // read stdout from the channel
             if self.rx_out.changed().await.is_ok() {
                 let out = &*self.rx_out.borrow();
                 Ok(out.to_string())
@@ -180,12 +180,12 @@ mod client {
         }
     }
 }
-// client:1 ends here
+// task client:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
 /// Create task server and client. The client can be cloned and used in
 /// concurrent environment
-pub(crate) fn new_interactive_task(program: &Path) -> (Task, Client) {
+pub(crate) fn new_interactive_task(program: &Path) -> (TaskServer, TaskClient) {
     let command = Command::new(program);
 
     let (tx_int, rx_int) = tokio::sync::mpsc::channel(1);
@@ -195,7 +195,7 @@ pub(crate) fn new_interactive_task(program: &Path) -> (Task, Client) {
     let notify1 = Arc::new(Notify::new());
     let notify2 = notify1.clone();
     let session = Session::new(command);
-    let server = Task {
+    let server = TaskServer {
         rx_int: rx_int.into(),
         rx_ctl: rx_ctl.into(),
         tx_out: tx_out.into(),
@@ -203,7 +203,7 @@ pub(crate) fn new_interactive_task(program: &Path) -> (Task, Client) {
         notifier: notify1,
     };
 
-    let client = Client {
+    let client = TaskClient {
         tx_int,
         tx_ctl,
         rx_out,
@@ -219,7 +219,7 @@ pub(crate) fn new_interactive_task(program: &Path) -> (Task, Client) {
 mod test {
     use super::*;
 
-    async fn handle_vasp_interaction(task: &mut Client) -> Result<()> {
+    async fn handle_vasp_interaction(task: &mut TaskClient) -> Result<()> {
         let input = include_str!("../tests/files/interactive_positions.txt");
         let read_pattern = "POSITIONS: reading from stdin";
         let out = task.interact(&input, read_pattern).await?;
