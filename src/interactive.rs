@@ -75,7 +75,6 @@ mod taskServer {
         for i in 0.. {
             tokio::select! {
                 Some(int) = rx_int.recv() => {
-                    // let handler = session.get_handler();
                     if session_handler.is_none() {
                         session_handler = session.spawn()?.into();
                     }
@@ -85,36 +84,30 @@ mod taskServer {
                     debug!("coffee break for computation ... {:?}", i);
                     tx_out.send(out).context("send stdout using tx_out")?;
                     &notifier.notify_waiters();
-                    info!("Computation done: sent client {} the result", i);
+                    debug!("Computation done: sent client {} the result", i);
                 }
                 Some(ctl) = rx_ctl.recv() => {
-                    match control_session(session_handler.as_ref(), ctl) {
+                    match break_control_session(session_handler.as_ref(), ctl) {
                         Ok(false) => {},
                         Ok(true) => break,
-                        Err(err) => {
-                            error!("control session error: {:?}", err);
-                            break;
-                        }
+                        Err(err) => {error!("control session error: {:?}", err); break;}
                     }
                 }
-                else => {break;}
+                else => {
+                    bail!("Unexpected branch: the communication channels broken?");
+                }
             };
-            info!("Computation done: sent client {} the result", i);
         }
 
         Ok(())
     }
 
-    fn control_session(s: Option<&SessionHandler>, ctl: Control) -> Result<bool> {
+    fn break_control_session(s: Option<&SessionHandler>, ctl: Control) -> Result<bool> {
         let s = s.as_ref().ok_or(format_err!("control error: session not started!"))?;
 
         match ctl {
-            Control::Pause => {
-                s.pause()?;
-            }
-            Control::Resume => {
-                s.resume()?;
-            }
+            Control::Pause => s.pause()?,
+            Control::Resume => s.resume()?,
             Control::Quit => {
                 s.terminate()?;
                 return Ok(true);
@@ -128,13 +121,13 @@ mod taskServer {
 // [[file:../vasp-tools.note::*task client][task client:1]]
 #[derive(Clone)]
 pub(crate) struct TaskClient {
-    // for send client request for pause, resume, stop computation in server side
+    // for send client request for pause, resume, stop computation on server side
     tx_ctl: TxControl,
-    // for interaction with child process in server side
+    // for interaction with child process on server side
     tx_int: TxInteraction,
-    // for getting child process's stdout running in server side
+    // for getting child process's stdout running on server side
     rx_out: RxInteractionOutput,
-    // for getting notification when computation done in server side
+    // for getting notification when computation done on server side
     notifier: Arc<Notify>,
 }
 
@@ -171,12 +164,9 @@ mod Taskclient {
             // wait for server's notification for job done
             self.notifier.notified().await;
             // read stdout from the channel
-            if self.rx_out.changed().await.is_ok() {
-                let out = &*self.rx_out.borrow();
-                Ok(out.to_string())
-            } else {
-                bail!("todo");
-            }
+            self.rx_out.changed().await?;
+            let out = &*self.rx_out.borrow();
+            Ok(out.to_string())
         }
     }
 }
