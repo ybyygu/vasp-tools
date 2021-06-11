@@ -21,7 +21,7 @@ fn signal_processes_by_session_id(sid: u32, signal: &str) -> Result<()> {
 // [[file:../vasp-tools.note::*core/std][core/std:1]]
 mod core_std {
     use super::*;
-    use crate::process::ProcessGroupExt;
+    use gosh::runner::prelude::*;
 
     use std::process::Command;
     use std::process::{Child, ExitStatus};

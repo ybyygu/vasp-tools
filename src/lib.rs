@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 // [[file:../vasp-tools.note::*mods][mods:1]]
 mod cli;
 mod interactive;
-mod process;
 mod session;
 mod socket;
 mod vasp;
