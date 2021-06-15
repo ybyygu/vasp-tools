@@ -46,7 +46,7 @@ pub(crate) struct TaskServer {
     notifier: Arc<Notify>,
 }
 
-mod taskServer {
+mod taskserver {
     use super::*;
 
     impl TaskServer {
@@ -131,7 +131,7 @@ pub(crate) struct TaskClient {
     notifier: Arc<Notify>,
 }
 
-mod Taskclient {
+mod taskclient {
     use super::*;
 
     impl TaskClient {
