@@ -9,6 +9,8 @@ use crate::session::{Session, SessionHandler};
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::Notify;
+
+use gosh::runner::prelude::*;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*base][base:1]]
@@ -185,6 +187,7 @@ pub(crate) fn new_interactive_task(program: &Path) -> (TaskServer, TaskClient) {
     let notify1 = Arc::new(Notify::new());
     let notify2 = notify1.clone();
     let session = Session::new(command);
+
     let server = TaskServer {
         rx_int: rx_int.into(),
         rx_ctl: rx_ctl.into(),
