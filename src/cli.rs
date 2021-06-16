@@ -51,8 +51,7 @@ async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Res
 pub fn simulate_interactive_vasp() -> Result<()> {
     let part0 = include_str!("../tests/files/interactive_iter0.txt");
     let part1 = include_str!("../tests/files/interactive_iter1.txt");
-    let energy = "F= -.85097948E+02 E0= -.85096866E+02  d E =-.850979E+02  mag=     2.9646";
-    let i = 4;
+    // let energy = "F= -.85097948E+02 E0= -.85096866E+02  d E =-.850979E+02  mag=     2.9646";
 
     let natoms = 25;
     let stdin = std::io::stdin();
@@ -64,9 +63,12 @@ pub fn simulate_interactive_vasp() -> Result<()> {
         for _ in 0..natoms {
             handler.read_line(&mut positions)?;
         }
-        // make it slower, 0.1 second delay
+        // make it slower: 0.1 second delay
         sleep(0.1);
         print!("{}", part1);
+        // replace energy with iter number, so we can test against it to make
+        // sure we are correct during multiple interactions.
+        let energy = format!("F= -.85097948E+02 E0={:-12.8E}  d E =-.850979E+02  mag=     2.9646", i);
         println!("{:4} {}", i, energy);
     }
     Ok(())

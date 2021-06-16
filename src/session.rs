@@ -302,12 +302,14 @@ fn test_interactive_vasp() -> Result<()> {
     let h = s.spawn()?;
 
     let o = s.interact("", read_pattern)?;
-    let (energy1, forces1) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
-    println!("{}", o);
+    let _ = crate::vasp::stdout::parse_energy_and_forces(&o)?;
     let o = s.interact(&positions, read_pattern)?;
-    let (energy2, forces2) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
-    assert_eq!(energy1, energy2);
-    
+    let (energy2, _forces2) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+    assert_eq!(energy2, 2.0);
+    let o = s.interact(&positions, read_pattern)?;
+    let (energy3, _forces3) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+    assert_eq!(energy3, 3.0);
+
     h.terminate()?;
 
     Ok(())
