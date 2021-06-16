@@ -9,8 +9,6 @@ use crate::session::{Session, SessionHandler};
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::Notify;
-
-use gosh::runner::prelude::*;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*base][base:1]]

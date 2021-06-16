@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 mod cli;
 mod interactive;
 mod session;
-mod session_new;
 mod socket;
 mod vasp;
 
