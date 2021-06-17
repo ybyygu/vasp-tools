@@ -23,6 +23,7 @@ rexpect = "0.4"
 libc = "0.2"
 shared_child = "0.3"
 tokio = { version = "1", features = ["full"] }
+tokio-util = "0.6"
                  
 [dev-dependencies]
 
