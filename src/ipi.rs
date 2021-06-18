@@ -1,5 +1,7 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use crate::common::*;
+
+use gosh::gchemol::Molecule;
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*mods][mods:1]]
@@ -8,6 +10,7 @@ mod codec;
 
 // [[file:../vasp-tools.note::*base][base:1]]
 /// The Message type sent from client side (the computation engine)
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientStatus {
     /// The client code needs initializing data.
     NeedInit,
@@ -18,6 +21,7 @@ pub enum ClientStatus {
 }
 
 /// The message sent from server side (application)
+#[derive(Debug, Clone)]
 pub enum ServerMessage {
     /// Request the status of the client code
     Status,
@@ -26,19 +30,58 @@ pub enum ServerMessage {
     /// corresponding to the bead index, another integer giving the number of
     /// bits in the initialization string, and finally the initialization string
     /// itself.
-    Init { ibead: u32, nbytes: u32, init: String },
+    Init(InitData),
+
     /// Send the client code the cell and cartesion positions.
-    PosData,
+    PosData(Molecule),
+
     /// Get the potential and forces computed by client code
     GetForce,
+
     /// Request to exit
     Exit,
 }
 
 /// The message sent by client code (VASP ...)
+#[derive(Debug, Clone)]
 pub enum ClientMessage {
-    NeedInt,
-    ForceReady,
-    ClientStatus,
+    ForceReady(Computed),
+    Status(ClientStatus),
+}
+
+#[derive(Debug, Clone)]
+pub struct Computed {
+    energy: f64,
+    forces: Vec<[f64; 3]>,
+    viral: [f64; 9],
+    extra: String,
+}
+
+impl Computed {
+    fn from_model_properties(mp: &gosh::model::ModelProperties) -> Self {
+        Self {
+            energy: mp.get_energy().unwrap(),
+            forces: mp.get_forces().unwrap().clone(),
+            viral: [0.0; 9],
+            extra: "".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct InitData {
+    ibead: usize,
+    nbytes: usize,
+    init: String,
+}
+
+impl InitData {
+    fn new(ibead: usize, init: &str) -> Self {
+        Self {
+            ibead,
+            nbytes: init.len(),
+            init: init.into(),
+        }
+    }
 }
 // base:1 ends here
