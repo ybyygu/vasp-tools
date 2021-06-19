@@ -163,7 +163,7 @@ fn test_ipi_init() {
 }
 // server/init:1 ends here
 
-// [[file:../../vasp-tools.note::*server/start compute][server/start compute:1]]
+// [[file:../../vasp-tools.note::*server/start compute][server/start compute:2]]
 use gosh::gchemol::{Atom, Lattice, Molecule};
 use vecfx::*;
 
@@ -279,7 +279,7 @@ fn test_decode_posdata() {
         }
     }
 }
-// server/start compute:1 ends here
+// server/start compute:2 ends here
 
 // [[file:../../vasp-tools.note::*client/compute done][client/compute done:1]]
 fn encode_client_computed(dst: &mut BytesMut, computed: &Computed) -> EncodedResult {
@@ -448,71 +448,3 @@ impl Encoder<ServerMessage> for ServerCodec {
     }
 }
 // pub/server:1 ends here
-
-// [[file:../../vasp-tools.note::*test][test:1]]
-#[tokio::test]
-async fn test_ipi() -> crate::common::Result<()> {
-    use futures::SinkExt;
-    use futures::StreamExt;
-    use tokio::net::UnixStream;
-    use tokio_util::codec::{FramedRead, FramedWrite};
-
-    gut::cli::setup_logger_for_test();
-
-    let mut stream = UnixStream::connect("/tmp/ipi_ase_server_socket").await?;
-    let (read, write) = stream.split();
-
-    // Split the client transport into write and read portions.
-    let mut client_read = FramedRead::new(read, ServerCodec);
-    let mut client_write = FramedWrite::new(write, ClientCodec);
-
-    let mut mol_to_compute: Option<Molecule> = None;
-    // NOTE: There is no async for loop for stream in current version of Rust,
-    // so we use while loop instead
-    while let Some(stream) = client_read.next().await {
-        let mut stream = stream?;
-        match stream {
-            ServerMessage::Status => {
-                info!("server ask for client status");
-                if mol_to_compute.is_none() {
-                    client_write.send(ClientMessage::Status(ClientStatus::Ready)).await?;
-                } else {
-                    client_write.send(ClientMessage::Status(ClientStatus::HaveData)).await?;
-                }
-            }
-            ServerMessage::GetForce => {
-                info!("server ask for forces");
-                if let Some(mol) = &mol_to_compute {
-                    let n = mol.natoms();
-                    let forces = (0..n).map(|_| [0.1; 3]).collect();
-                    let virial = [0.0; 9];
-                    let computed = Computed {
-                        energy: -12.0,
-                        forces,
-                        virial,
-                        extra: "".into(),
-                    };
-                    client_write.send(ClientMessage::ForceReady(computed)).await?;
-                    mol_to_compute = None;
-                } else {
-                    bail!("not mol to compute!");
-                }
-            }
-            ServerMessage::PosData(mol) => {
-                info!("server sent mol {:?}", mol);
-                mol_to_compute = Some(mol);
-            }
-            ServerMessage::Init(data) => {
-                info!("server sent init data: {:?}", data);
-            }
-            ServerMessage::Exit => {
-                info!("server ask exit");
-                break;
-            }
-        }
-        gut::utils::sleep(1.0);
-    }
-
-    Ok(())
-}
-// test:1 ends here
