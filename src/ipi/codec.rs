@@ -167,6 +167,10 @@ const Bohr: f64 = 0.5291772105638411;
 use gosh::gchemol::{Atom, Lattice, Molecule};
 use vecfx::*;
 
+fn is_periodic(cell: [f64; 9]) -> bool {
+    cell.into_iter().map(|x| x.abs()).sum::<f64>() > 1e-6
+}
+
 fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
     // 0. try to decode no advance, until we have enough data
     let msg = try_decode_message_header(src, 12)?;
@@ -183,16 +187,17 @@ fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
     // 1. start read message
     src.advance(12);
     let mut cell = [0f64; 9];
-    // FIXME: nine floats for the cell vector matrix
+    // nine floats for the cell vector matrix
     for i in 0..9 {
         cell[i] = src.get_f64_le() * Bohr;
     }
 
+    // read inverse matrix of the cell
     // NOTE: we do not need this actually
-    // FIXME: nine floats for the inverse matrix
-    let mut icell = [0f64; 9];
+    // nine floats for the inverse matrix
+    let mut _icell = [0f64; 9];
     for i in 0..9 {
-        icell[i] = src.get_f64_le() * Bohr;
+        _icell[i] = src.get_f64_le() * Bohr;
     }
 
     let natoms = src.get_u32_le() as usize;
@@ -207,10 +212,15 @@ fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
     // FIXME: how to determinate element symbols?
     let atoms: Vec<_> = coords.into_iter().map(|p| Atom::new("C", p)).collect();
     let mut mol = Molecule::from_atoms(atoms);
+
     // NOTE: The cell is transposed when transfering
-    let mat = Matrix3f::from_row_slice(&cell);
-    let lat = Lattice::from_matrix(mat);
-    mol.set_lattice(lat);
+    if is_periodic(cell) {
+        let mat = Matrix3f::from_row_slice(&cell);
+        let lat = Lattice::from_matrix(mat);
+        mol.set_lattice(lat);
+    } else {
+        debug!("i-pi: non-periodic system");
+    }
 
     Ok(mol)
 }
@@ -218,32 +228,30 @@ fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
 fn encode_posdata(dest: &mut BytesMut, mol: &Molecule) -> EncodedResult {
     encode_header(dest, "POSDATA")?;
 
-    let natoms = mol.natoms();
-    if let Some(lat) = mol.get_lattice() {
-        // I-PI assumes row major order for cell matrix
-        for v in lat.matrix().transpose().as_slice() {
-            dest.put_f64_le(*v / Bohr);
-        }
-        // I-PI assumes row major order for cell matrix
-        for v in lat.inv_matrix().transpose().as_slice() {
-            dest.put_f64_le(*v * Bohr);
-        }
+    let (cell, icell) = mol.get_lattice().as_ref().map_or_else(
+        // NOTE: for non-periodic system, we use a cell in zero size
+        || (Matrix3f::zeros(), Matrix3f::zeros()),
+        |lat| (lat.matrix(), lat.inv_matrix()),
+    );
 
-        // write Cartesian coordinates
-        dest.put_u32_le(natoms as u32);
-        for [x, y, z] in mol.positions() {
-            dest.put_f64_le(x / Bohr);
-            dest.put_f64_le(y / Bohr);
-            dest.put_f64_le(z / Bohr);
-        }
-
-        Ok(())
-    } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "missing lattice data",
-        ))
+    // I-PI assumes row major order for cell matrix
+    for v in cell.transpose().as_slice() {
+        dest.put_f64_le(*v / Bohr);
     }
+    // I-PI assumes row major order for cell matrix
+    for v in icell.transpose().as_slice() {
+        dest.put_f64_le(*v * Bohr);
+    }
+
+    // write Cartesian coordinates
+    dest.put_u32_le(mol.natoms() as u32);
+    for [x, y, z] in mol.positions() {
+        dest.put_f64_le(x / Bohr);
+        dest.put_f64_le(y / Bohr);
+        dest.put_f64_le(z / Bohr);
+    }
+
+    Ok(())
 }
 
 #[test]
@@ -473,7 +481,6 @@ async fn test_ipi() -> crate::common::Result<()> {
             }
             ServerMessage::GetForce => {
                 info!("server ask for forces");
-                gut::utils::sleep(1.0);
                 if let Some(mol) = &mol_to_compute {
                     let n = mol.natoms();
                     let forces = (0..n).map(|_| [0.1; 3]).collect();
