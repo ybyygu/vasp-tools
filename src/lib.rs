@@ -1,6 +1,9 @@
 // [[file:../vasp-tools.note::*imports][imports:1]]
 use gut::prelude::*;
 use std::path::{Path, PathBuf};
+
+#[macro_use]
+extern crate approx; // For the macro relative_eq!
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::*mods][mods:1]]

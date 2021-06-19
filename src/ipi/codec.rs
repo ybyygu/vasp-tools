@@ -34,7 +34,7 @@ fn try_to_string(bytes: &[u8]) -> Result<String, std::io::Error> {
 fn to_u32(bytes: &[u8]) -> u32 {
     assert_eq!(bytes.len(), 4);
     let mut bytes: Bytes = bytes.into_iter().cloned().collect();
-    bytes.get_u32()
+    bytes.get_u32_le()
 }
 
 /// Try to decode message header
@@ -94,7 +94,7 @@ fn encode_client_status(dest: &mut BytesMut, status: &ClientStatus) -> EncodedRe
     let s = match status {
         ClientStatus::NeedInit => "NEEDINIT",
         ClientStatus::Ready => "READY",
-        ClientStatus::HaveData => "HaveData",
+        ClientStatus::HaveData => "HAVEDATA",
     };
     encode_header(dest, s)?;
 
@@ -107,10 +107,7 @@ fn decode_client_status(src: &BytesMut) -> Result<ClientStatus, DecodeError> {
         "NEEDINT" => ClientStatus::NeedInit,
         "READY" => ClientStatus::Ready,
         "HAVEDATA" => ClientStatus::HaveData,
-        _ => {
-            dbg!(msg);
-            todo!()
-        }
+        _ => panic!("invalid message: {:?}", msg),
     };
     Ok(status)
 }
@@ -137,9 +134,9 @@ fn decode_init(src: &mut BytesMut) -> Result<InitData, DecodeError> {
     let n_expected = 12 + 4 + 4 + nbytes;
 
     src.advance(12);
-    let ibead = src.get_u32();
-    let nbytes = src.get_u32();
-    let init = src.copy_to_bytes(dbg!(nbytes) as usize);
+    let ibead = src.get_u32_le();
+    let nbytes = src.get_u32_le();
+    let init = src.copy_to_bytes(nbytes as usize);
     let init = try_to_string(&init).map_err(|e| into_decode_error(e))?;
     Ok(InitData::new(0, &init))
 }
@@ -148,8 +145,8 @@ fn encode_init(dest: &mut BytesMut, init: InitData) -> EncodedResult {
     encode_header(dest, "INIT")?;
 
     let InitData { ibead, nbytes, init } = init;
-    dest.put_u32(ibead as u32);
-    dest.put_u32(nbytes as u32);
+    dest.put_u32_le(ibead as u32);
+    dest.put_u32_le(nbytes as u32);
     dest.put_slice(init.as_bytes());
 
     Ok(())
@@ -165,7 +162,10 @@ fn test_ipi_init() {
 // server/init:1 ends here
 
 // [[file:../../vasp-tools.note::*server/start compute][server/start compute:1]]
-use gosh::gchemol::Molecule;
+const Bohr: f64 = 0.5291772105638411;
+
+use gosh::gchemol::{Atom, Lattice, Molecule};
+use vecfx::*;
 
 fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
     // 0. try to decode no advance, until we have enough data
@@ -174,7 +174,7 @@ fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
 
     let nbytes_cell = 9 * 8 * 2; // cell matrix and the inverse of cell matrix
     let nbytes_expected = 12 + nbytes_cell;
-    let natoms = try_decode_length_header_u32(src, nbytes_expected)?;
+    let natoms = try_decode_length_header_u32(&src, nbytes_expected)?;
 
     let nbytes_cart_coords = 3 * 8 * natoms;
     let nbytes_expected = nbytes_expected + 4 + nbytes_cart_coords;
@@ -184,29 +184,35 @@ fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
     src.advance(12);
     let mut cell = [0f64; 9];
     // FIXME: nine floats for the cell vector matrix
-    // FIXME: units.Bohr,
     for i in 0..9 {
-        cell[i] = src.get_f64();
+        cell[i] = src.get_f64_le() * Bohr;
     }
 
+    // NOTE: we do not need this actually
     // FIXME: nine floats for the inverse matrix
-    // FIXME: units.Bohr,
     let mut icell = [0f64; 9];
     for i in 0..9 {
-        icell[i] = src.get_f64();
+        icell[i] = src.get_f64_le() * Bohr;
     }
 
-    let natoms = src.get_u32() as usize;
+    let natoms = src.get_u32_le() as usize;
     let mut coords = vec![[0f64; 3]; natoms];
     for i in 0..natoms {
-        let x = src.get_f64();
-        let y = src.get_f64();
-        let z = src.get_f64();
-        // FIXME: units.Bohr,
-        coords[0] = [x, y, z];
+        let x = src.get_f64_le() * Bohr;
+        let y = src.get_f64_le() * Bohr;
+        let z = src.get_f64_le() * Bohr;
+        coords[i] = [x, y, z];
     }
 
-    todo!();
+    // FIXME: how to determinate element symbols?
+    let atoms: Vec<_> = coords.into_iter().map(|p| Atom::new("C", p)).collect();
+    let mut mol = Molecule::from_atoms(atoms);
+    // NOTE: The cell is transposed when transfering
+    let mat = Matrix3f::from_row_slice(&cell);
+    let lat = Lattice::from_matrix(mat);
+    mol.set_lattice(lat);
+
+    Ok(mol)
 }
 
 fn encode_posdata(dest: &mut BytesMut, mol: &Molecule) -> EncodedResult {
@@ -214,30 +220,55 @@ fn encode_posdata(dest: &mut BytesMut, mol: &Molecule) -> EncodedResult {
 
     let natoms = mol.natoms();
     if let Some(lat) = mol.get_lattice() {
-        // FIXME: column major or not?
-        // FIXME: units.bohr
-        for v in lat.matrix().as_slice() {
-            dest.put_f64(*v);
+        // I-PI assumes row major order for cell matrix
+        for v in lat.matrix().transpose().as_slice() {
+            dest.put_f64_le(*v / Bohr);
         }
-        // FIXME: column major or not?
-        // FIXME: units.bohr
-        for v in lat.inv_matrix().as_slice() {
-            dest.put_f64(*v);
+        // I-PI assumes row major order for cell matrix
+        for v in lat.inv_matrix().transpose().as_slice() {
+            dest.put_f64_le(*v * Bohr);
         }
 
-        dest.put_u32(natoms as u32);
-        // FIXME: units.Bohr,
+        // write Cartesian coordinates
+        dest.put_u32_le(natoms as u32);
         for [x, y, z] in mol.positions() {
-            dest.put_f64(x);
-            dest.put_f64(y);
-            dest.put_f64(z);
+            dest.put_f64_le(x / Bohr);
+            dest.put_f64_le(y / Bohr);
+            dest.put_f64_le(z / Bohr);
         }
-        todo!();
+
+        Ok(())
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "missing lattice data",
         ))
+    }
+}
+
+#[test]
+fn test_decode_posdata() {
+    use approx::*;
+    use gosh::gchemol::prelude::*;
+
+    let mol1 = Molecule::from_file("tests/files/quinone.cif").unwrap();
+    let mut dest = BytesMut::new();
+    encode_posdata(&mut dest, &mol1);
+    let mol2 = decode_posdata(&mut dest).unwrap();
+    assert_eq!(mol1.natoms(), mol2.natoms());
+    let [va1, vb1, vc1] = mol1.get_lattice().unwrap().vectors();
+    let [va2, vb2, vc2] = mol2.get_lattice().unwrap().vectors();
+    for i in 0..3 {
+        assert_relative_eq!(va1[i], va2[i], epsilon = 1e-4);
+        assert_relative_eq!(vb1[i], vb2[i], epsilon = 1e-4);
+        assert_relative_eq!(vc1[i], vc2[i], epsilon = 1e-4);
+    }
+    let p1: Vec<_> = mol1.positions().collect();
+    let p2: Vec<_> = mol2.positions().collect();
+    for i in 0..p1.len() {
+        for j in 0..3 {
+            assert_relative_eq!(p1[i][j], p2[i][j], epsilon = 1e-4);
+        }
     }
 }
 // server/start compute:1 ends here
@@ -246,19 +277,19 @@ fn encode_posdata(dest: &mut BytesMut, mol: &Molecule) -> EncodedResult {
 fn encode_client_computed(dst: &mut BytesMut, computed: &Computed) -> EncodedResult {
     let s = format_header("FORCEREADY");
     dst.put_slice(s.as_bytes());
-    dst.put_f64(computed.energy);
+    dst.put_f64_le(computed.energy);
     let n = computed.forces.len();
-    dst.put_u32(n as u32);
+    dst.put_u32_le(n as u32);
     for i in 0..n {
-        dst.put_f64(computed.forces[i][0]);
-        dst.put_f64(computed.forces[i][1]);
-        dst.put_f64(computed.forces[i][2]);
+        dst.put_f64_le(computed.forces[i][0]);
+        dst.put_f64_le(computed.forces[i][1]);
+        dst.put_f64_le(computed.forces[i][2]);
     }
     for i in 0..9 {
-        dst.put_f64(computed.viral[i]);
+        dst.put_f64_le(computed.virial[i]);
     }
     let n = computed.extra.len();
-    dst.put_u32(n as u32);
+    dst.put_u32_le(n as u32);
     dst.put_slice(computed.extra.as_bytes());
 
     Ok(())
@@ -280,19 +311,19 @@ fn decode_client_computed(src: &mut BytesMut) -> Result<Computed, DecodeError> {
 
     // start reading message now
     src.advance(nheader);
-    let energy = src.get_f64();
-    let natoms = src.get_u32() as usize;
+    let energy = src.get_f64_le();
+    let natoms = src.get_u32_le() as usize;
     let mut forces = vec![[0.0; 3]; natoms];
     for i in 0..natoms {
         for j in 0..3 {
-            forces[i][j] = src.get_f64();
+            forces[i][j] = src.get_f64_le();
         }
     }
-    let mut viral = [0.0; 9];
+    let mut virial = [0.0; 9];
     for i in 0..9 {
-        viral[i] = src.get_f64();
+        virial[i] = src.get_f64_le();
     }
-    let nextra = src.get_u32();
+    let nextra = src.get_u32_le();
     let bytes = src.copy_to_bytes(nextra as usize);
     let extra = try_to_string(&bytes).map_err(|e| into_decode_error(e))?;
 
@@ -300,7 +331,7 @@ fn decode_client_computed(src: &mut BytesMut) -> Result<Computed, DecodeError> {
         energy,
         forces,
         extra,
-        viral,
+        virial,
     };
 
     Ok(computed.into())
@@ -308,7 +339,7 @@ fn decode_client_computed(src: &mut BytesMut) -> Result<Computed, DecodeError> {
 // client/compute done:1 ends here
 
 // [[file:../../vasp-tools.note::*pub/client][pub/client:1]]
-pub struct ClientCodec {}
+pub struct ClientCodec;
 
 impl Decoder for ClientCodec {
     type Item = ClientMessage;
@@ -408,3 +439,72 @@ impl Encoder<ServerMessage> for ServerCodec {
     }
 }
 // pub/server:1 ends here
+
+// [[file:../../vasp-tools.note::*test][test:1]]
+#[tokio::test]
+async fn test_ipi() -> crate::common::Result<()> {
+    use futures::SinkExt;
+    use futures::StreamExt;
+    use tokio::net::UnixStream;
+    use tokio_util::codec::{FramedRead, FramedWrite};
+
+    gut::cli::setup_logger_for_test();
+
+    let mut stream = UnixStream::connect("/tmp/ipi_ase_server_socket").await?;
+    let (read, write) = stream.split();
+
+    // Split the client transport into write and read portions.
+    let mut client_read = FramedRead::new(read, ServerCodec);
+    let mut client_write = FramedWrite::new(write, ClientCodec);
+
+    let mut mol_to_compute: Option<Molecule> = None;
+    // NOTE: There is no async for loop for stream in current version of Rust,
+    // so we use while loop instead
+    while let Some(stream) = client_read.next().await {
+        let mut stream = stream?;
+        match stream {
+            ServerMessage::Status => {
+                info!("server ask for client status");
+                if mol_to_compute.is_none() {
+                    client_write.send(ClientMessage::Status(ClientStatus::Ready)).await?;
+                } else {
+                    client_write.send(ClientMessage::Status(ClientStatus::HaveData)).await?;
+                }
+            }
+            ServerMessage::GetForce => {
+                info!("server ask for forces");
+                gut::utils::sleep(1.0);
+                if let Some(mol) = &mol_to_compute {
+                    let n = mol.natoms();
+                    let forces = (0..n).map(|_| [0.1; 3]).collect();
+                    let virial = [0.0; 9];
+                    let computed = Computed {
+                        energy: -12.0,
+                        forces,
+                        virial,
+                        extra: "".into(),
+                    };
+                    client_write.send(ClientMessage::ForceReady(computed)).await?;
+                    mol_to_compute = None;
+                } else {
+                    bail!("not mol to compute!");
+                }
+            }
+            ServerMessage::PosData(mol) => {
+                info!("server sent mol {:?}", mol);
+                mol_to_compute = Some(mol);
+            }
+            ServerMessage::Init(data) => {
+                info!("server sent init data: {:?}", data);
+            }
+            ServerMessage::Exit => {
+                info!("server ask exit");
+                break;
+            }
+        }
+        gut::utils::sleep(1.0);
+    }
+
+    Ok(())
+}
+// test:1 ends here

@@ -53,7 +53,7 @@ pub enum ClientMessage {
 pub struct Computed {
     energy: f64,
     forces: Vec<[f64; 3]>,
-    viral: [f64; 9],
+    virial: [f64; 9],
     extra: String,
 }
 
@@ -62,7 +62,9 @@ impl Computed {
         Self {
             energy: mp.get_energy().unwrap(),
             forces: mp.get_forces().unwrap().clone(),
-            viral: [0.0; 9],
+            // TODO: we have no support for stress tensor, so set virial as
+            // zeros
+            virial: [0.0; 9],
             extra: "".into(),
         }
     }
