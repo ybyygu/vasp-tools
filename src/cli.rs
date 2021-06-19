@@ -15,6 +15,8 @@ const VASP_READ_PATTERN: &str = "POSITIONS: read";
 ///
 /// * control: try to pause/resume running process to reduce CPU usages
 async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Result<()> {
+    use gosh::adaptor::ModelAdaptor;
+    
     // for the first time run, VASP reads coordinates from POSCAR
     let input: String = if !std::path::Path::new("OUTCAR").exists() {
         info!("Write complete POSCAR file for initial calculation.");
@@ -34,10 +36,13 @@ async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Res
 
     // wait for output
     let s = client.interact(&input, VASP_READ_PATTERN).await?;
-    let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
-    let mut mp = ModelProperties::default();
-    mp.set_energy(energy);
-    mp.set_forces(forces);
+    // NOTE: for larger system, there may have no energy/forces information in
+    // stdout
+    // let (energy, forces) = crate::vasp::stdout::parse_energy_and_forces(&s)?;
+    // let mut mp = ModelProperties::default();
+    // mp.set_energy(energy);
+    // mp.set_forces(forces);
+    let mp = gosh::adaptor::Vasp().parse_last("OUTCAR")?;
     println!("{}", mp);
 
     // pause VASP to avoid wasting CPU times, which will be resumed on next calculation
