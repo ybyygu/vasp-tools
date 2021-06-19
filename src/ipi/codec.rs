@@ -412,7 +412,7 @@ impl Decoder for ServerCodec {
                     src.advance(12);
                     Ok(Some(ServerMessage::GetForce))
                 }
-                "EXIT" => {
+                "EXIT" | "STOP" => {
                     src.advance(12);
                     Ok(Some(ServerMessage::Exit))
                 }

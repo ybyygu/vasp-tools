@@ -59,9 +59,11 @@ pub struct Computed {
 
 impl Computed {
     fn from_model_properties(mp: &gosh::model::ModelProperties) -> Self {
+        let energy = dbg!(mp.get_energy().unwrap());
+        let forces = mp.get_forces().unwrap().clone();
         Self {
-            energy: mp.get_energy().unwrap(),
-            forces: mp.get_forces().unwrap().clone(),
+            energy,
+            forces,
             // TODO: we have no support for stress tensor, so set virial as
             // zeros
             virial: [0.0; 9],
@@ -96,9 +98,32 @@ pub async fn bbm_as_ipi_client(mut bbm: BlackBoxModel, mol_ini: Molecule, sock: 
     use futures::StreamExt;
     use tokio::net::UnixStream;
     use tokio_util::codec::{FramedRead, FramedWrite};
+    dbg!();
 
-    let mut stream = UnixStream::connect(sock).await?;
+    // FIXME: temp solution: write flame yaml input
+    let [va, vb, vc] = mol_ini.get_lattice().as_ref().unwrap().vectors();
+    println!("---");
+    println!("conf:");
+    println!("  bc: slab");
+    println!("  nat: {}", mol_ini.natoms());
+    println!("  units_length: angstrom");
+    println!("  cell:");
+    println!("  - [{:10.4}, {:10.4}, {:10.4}]", va[0], va[1], va[2]);
+    println!("  - [{:10.4}, {:10.4}, {:10.4}]", vb[0], vb[1], vb[2]);
+    println!("  - [{:10.4}, {:10.4}, {:10.4}]", vc[0], vc[1], vc[2]);
+    println!("  coord:");
+    for (i, a) in mol_ini.atoms() {
+        let [x, y, z] = a.position();
+        let fff: String = a.freezing().iter().map(|&x| if x { "T" } else { "F" }).collect();
+        println!("  - [{:10.4}, {:10.4}, {:10.4}, {}, {}]", x, y, z, a.symbol(), fff);
+    }
+
+    // let mut stream = UnixStream::connect(sock).context("connect to unix socket").await?;
+    let mut stream = tokio::net::TcpStream::connect("127.0.0.1:10244")
+        .await
+        .context("connect to host")?;
     let (read, write) = stream.split();
+    dbg!();
 
     // the message we received from the server (the driver)
     let mut server_read = FramedRead::new(read, codec::ServerCodec);
@@ -109,6 +134,7 @@ pub async fn bbm_as_ipi_client(mut bbm: BlackBoxModel, mol_ini: Molecule, sock: 
     // NOTE: There is no async for loop for stream in current version of Rust,
     // so we use while loop instead
     while let Some(stream) = server_read.next().await {
+        dbg!();
         let mut stream = stream?;
         match stream {
             ServerMessage::Status => {
@@ -198,17 +224,3 @@ async fn ipi_driver(sock: &Path, mol: &Molecule) -> Result<()> {
     Ok(())
 }
 // pub/as driver:1 ends here
-
-// [[file:../vasp-tools.note::*test2][test2:1]]
-#[tokio::test]
-async fn test_ipi_driver() -> Result<()> {
-    use gosh::gchemol::prelude::*;
-    gut::cli::setup_logger_for_test();
-
-    let sock  = "/scratch/.tmpyjc64l/siesta.sock";
-    let mol = Molecule::from_file("/share/apps/siesta/scratch/POSCAR4")?;
-    ipi_driver(sock.as_ref(), &mol).await?;
-
-    Ok(())
-}
-// test2:1 ends here

@@ -189,6 +189,44 @@ pub async fn vasp_client_enter_main() -> Result<()> {
 }
 // client:1 ends here
 
+// [[file:../vasp-tools.note::*ipi][ipi:1]]
+#[derive(Debug, StructOpt)]
+struct IpiCli {
+    #[structopt(flatten)]
+    verbose: gut::cli::Verbosity,
+
+    /// path to bbm template
+    #[structopt(short = "t")]
+    bbm: PathBuf,
+
+    /// path to molecule to compute
+    mol: PathBuf,
+
+    /// path to unix domain sock
+    #[structopt(short = "u", default_value = "ipi.sock")]
+    sock: PathBuf,
+}
+
+#[tokio::main]
+pub async fn ipi_client_enter_main() -> Result<()> {
+    use gosh::gchemol::prelude::*;
+    use gosh::gchemol::Molecule;
+    use gosh::model::BlackBoxModel;
+
+    let args = IpiCli::from_args();
+    args.verbose.setup_logger();
+
+    let mut bbm = BlackBoxModel::from_dir(&args.bbm)?;
+    let mol = Molecule::from_file(&args.mol)?;
+
+    dbg!();
+    crate::ipi::bbm_as_ipi_client(bbm, mol, &args.sock).await?;
+    dbg!();
+
+    Ok(())
+}
+// ipi:1 ends here
+
 // [[file:../vasp-tools.note::*summary][summary:1]]
 pub fn vasp_summary_enter_main() -> Result<()> {
     crate::vasp::outcar::summarize_outcar("OUTCAR".as_ref())?;
