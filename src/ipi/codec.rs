@@ -8,8 +8,8 @@ use tokio_util::codec::{Decoder, Encoder};
 type EncodedResult = Result<(), std::io::Error>;
 
 const HEADER_SIZE: usize = 12;
-const Bohr: f64 = 0.5291772105638411;
-const Hatree: f64 = 27.211386024367243;
+
+use gosh::gchemol::units::{Bohr, Hartree};
 // imports:1 ends here
 
 // [[file:../../vasp-tools.note::*utils][utils:1]]
@@ -168,7 +168,7 @@ use gosh::gchemol::{Atom, Lattice, Molecule};
 use vecfx::*;
 
 fn is_periodic(cell: [f64; 9]) -> bool {
-    cell.into_iter().map(|x| x.abs()).sum::<f64>() > 1e-6
+    cell.iter().map(|x| x.abs()).sum::<f64>() > 1e-6
 }
 
 fn decode_posdata(src: &mut BytesMut) -> Result<Molecule, DecodeError> {
@@ -285,17 +285,17 @@ fn test_decode_posdata() {
 fn encode_client_computed(dst: &mut BytesMut, computed: &Computed) -> EncodedResult {
     let s = format_header("FORCEREADY");
     dst.put_slice(s.as_bytes());
-    dst.put_f64_le(computed.energy / Hatree);
+    dst.put_f64_le(computed.energy / Hartree);
     let n = computed.forces.len();
     dst.put_u32_le(n as u32);
-    let f = Bohr / Hatree;
+    let f = Bohr / Hartree;
     for i in 0..n {
         dst.put_f64_le(computed.forces[i][0] * f);
         dst.put_f64_le(computed.forces[i][1] * f);
         dst.put_f64_le(computed.forces[i][2] * f);
     }
     for i in 0..9 {
-        dst.put_f64_le(computed.virial[i] * Hatree);
+        dst.put_f64_le(computed.virial[i] * Hartree);
     }
     let n = computed.extra.len();
     dst.put_u32_le(n as u32);
@@ -320,17 +320,17 @@ fn decode_client_computed(src: &mut BytesMut) -> Result<Computed, DecodeError> {
 
     // start reading message now
     src.advance(nheader);
-    let energy = src.get_f64_le() * Hatree;
+    let energy = src.get_f64_le() * Hartree;
     let natoms = src.get_u32_le() as usize;
     let mut forces = vec![[0.0; 3]; natoms];
     for i in 0..natoms {
         for j in 0..3 {
-            forces[i][j] = src.get_f64_le() * Hatree / Bohr;
+            forces[i][j] = src.get_f64_le() * Hartree / Bohr;
         }
     }
     let mut virial = [0.0; 9];
     for i in 0..9 {
-        virial[i] = src.get_f64_le() * Hatree;
+        virial[i] = src.get_f64_le() * Hartree;
     }
     let nextra = src.get_u32_le();
     let bytes = src.copy_to_bytes(nextra as usize);
