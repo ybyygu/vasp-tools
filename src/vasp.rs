@@ -82,6 +82,8 @@ pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
             "IBRION = -1",    // for static energy/force calculation
             "NWRITE = 1",     // setting NWRITE=0 could missing energy/forces in OUTCAR or stdout
             "INTERACTIVE = .TRUE.",
+            "LCHARG = .FALSE.", // avoid creating large files
+            "LWAVE  = .FALSE.",
             "POTIM = 0",
             "ISYM = 0",
         ]
