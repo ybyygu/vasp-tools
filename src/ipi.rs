@@ -98,7 +98,6 @@ pub async fn bbm_as_ipi_client(mut bbm: BlackBoxModel, mol_ini: Molecule, sock: 
     use futures::StreamExt;
     use tokio::net::UnixStream;
     use tokio_util::codec::{FramedRead, FramedWrite};
-    dbg!();
 
     // FIXME: temp solution: write flame yaml input
     let [va, vb, vc] = mol_ini.get_lattice().as_ref().unwrap().vectors();
@@ -123,7 +122,6 @@ pub async fn bbm_as_ipi_client(mut bbm: BlackBoxModel, mol_ini: Molecule, sock: 
         .await
         .context("connect to host")?;
     let (read, write) = stream.split();
-    dbg!();
 
     // the message we received from the server (the driver)
     let mut server_read = FramedRead::new(read, codec::ServerCodec);
@@ -134,11 +132,10 @@ pub async fn bbm_as_ipi_client(mut bbm: BlackBoxModel, mol_ini: Molecule, sock: 
     // NOTE: There is no async for loop for stream in current version of Rust,
     // so we use while loop instead
     while let Some(stream) = server_read.next().await {
-        dbg!();
         let mut stream = stream?;
         match stream {
             ServerMessage::Status => {
-                info!("server ask for client status");
+                debug!("server ask for client status");
                 if mol_to_compute.is_none() {
                     client_write.send(ClientMessage::Status(ClientStatus::Ready)).await?;
                 } else {
@@ -146,7 +143,7 @@ pub async fn bbm_as_ipi_client(mut bbm: BlackBoxModel, mol_ini: Molecule, sock: 
                 }
             }
             ServerMessage::GetForce => {
-                info!("server ask for forces");
+                debug!("server ask for forces");
                 if let Some(mol) = mol_to_compute.as_mut() {
                     assert_eq!(mol.natoms(), mol_ini.natoms());
                     // NOTE: reset element symbols from mol_ini
@@ -160,14 +157,14 @@ pub async fn bbm_as_ipi_client(mut bbm: BlackBoxModel, mol_ini: Molecule, sock: 
                 }
             }
             ServerMessage::PosData(mol) => {
-                info!("server sent mol {:?}", mol);
+                debug!("server sent mol {:?}", mol);
                 mol_to_compute = Some(mol);
             }
             ServerMessage::Init(data) => {
-                info!("server sent init data: {:?}", data);
+                debug!("server sent init data: {:?}", data);
             }
             ServerMessage::Exit => {
-                info!("server ask exit");
+                debug!("server ask exit");
                 break;
             }
         }

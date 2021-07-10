@@ -40,10 +40,10 @@ pub(crate) struct TaskServer {
     rx_ctl: Option<RxControl>,
     // for sending child process's stdout
     tx_out: Option<TxInteractionOutput>,
-    // child process
-    session: Option<Session>,
     // notify when computation done
     notifier: Arc<Notify>,
+    // child process
+    session: Option<Session>,
 }
 
 mod taskserver {
@@ -142,19 +142,19 @@ mod taskclient {
         }
 
         pub async fn pause(&self) -> Result<()> {
-            info!("send pause task msg");
+            trace!("send pause task msg");
             self.tx_ctl.send(Control::Pause).await?;
             Ok(())
         }
 
         pub async fn resume(&self) -> Result<()> {
-            info!("send resume task msg");
+            trace!("send resume task msg");
             self.tx_ctl.send(Control::Resume).await?;
             Ok(())
         }
 
         pub async fn terminate(&self) -> Result<()> {
-            info!("send quit task msg");
+            trace!("send quit task msg");
             self.tx_ctl.send(Control::Quit).await?;
             Ok(())
         }

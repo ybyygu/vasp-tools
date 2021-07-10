@@ -82,7 +82,7 @@ mod core_std {
             self.session_handler = h.clone().into();
             // dropping `session` will kill all processes in the session
             self.inner = session.into();
-            info!("start child process in new session: {:?}", h.id());
+            trace!("start child process in new session: {:?}", h.id());
 
             Ok(h.clone())
         }
@@ -142,13 +142,13 @@ mod stdout {
 
         /// Read stdout until finding a line containing the `pattern`
         pub fn read_until(&mut self, pattern: &str) -> Result<String> {
-            info!("Read stdout until finding pattern: {:?}", pattern);
+            trace!("Read stdout until finding pattern: {:?}", pattern);
             let mut text = String::new();
             while let Some(line) = self.reader.next() {
                 let line = line.context("invalid encoding?")?;
                 writeln!(&mut text, "{}", line)?;
                 if line.contains(&pattern) {
-                    info!("found pattern: {:?}", pattern);
+                    trace!("found pattern: {:?}", pattern);
                     return Ok(text);
                 }
             }

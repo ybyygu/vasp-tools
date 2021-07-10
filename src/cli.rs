@@ -19,7 +19,7 @@ async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Res
     
     // for the first time run, VASP reads coordinates from POSCAR
     let input: String = if !std::path::Path::new("OUTCAR").exists() {
-        info!("Write complete POSCAR file for initial calculation.");
+        debug!("Write complete POSCAR file for initial calculation.");
         let txt = crate::vasp::stdin::read_txt_from_stdin()?;
         gut::fs::write_to_file("POSCAR", &txt)?;
         // inform server to start with empty input
@@ -30,7 +30,7 @@ async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Res
             client.try_resume().await?;
         }
         // redirect scaled positions to server for interactive VASP calculationsSP
-        info!("Send scaled coordinates to interactive VASP server.");
+        debug!("Send scaled coordinates to interactive VASP server.");
         crate::vasp::stdin::get_scaled_positions_from_stdin()?
     };
 
@@ -116,13 +116,13 @@ pub async fn run_vasp_enter_main() -> Result<()> {
     let interactive = args.interactive;
 
     if interactive {
-        info!("Run VASP for interactive calculation ...");
+        debug!("Run VASP for interactive calculation ...");
         crate::vasp::update_incar_for_bbm(interactive)?;
         crate::socket::Server::create(&args.socket_file)?
             .run_and_serve(vasp_program)
             .await;
     } else {
-        info!("Run VASP for one time single-point calculation ...");
+        debug!("Run VASP for one time single-point calculation ...");
         crate::vasp::update_incar_for_bbm(false)?;
         // NOTE: we need handle duct::IntoExecutablePath trick. In duct
         // crate, the Path has different semantics with `String`: a program

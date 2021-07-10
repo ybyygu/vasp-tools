@@ -30,7 +30,7 @@ pub(crate) mod common {
         let mut t = 0.0;
         loop {
             if f.exists() {
-                info!("Elapsed time during waiting: {:.2} seconds ", t);
+                trace!("Elapsed time during waiting: {:.2} seconds ", t);
                 return Ok(());
             }
             t += interval;

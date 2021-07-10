@@ -191,7 +191,7 @@ mod server {
             }
 
             let listener = UnixListener::bind(&socket_file).context("bind socket")?;
-            info!("serve socket {:?}", socket_file);
+            debug!("serve socket {:?}", socket_file);
 
             Ok(Server {
                 listener,
@@ -226,7 +226,7 @@ mod server {
                     for i in 0.. {
                         // wait for client requests
                         let mut client_stream = self.wait_for_client_stream().await.unwrap();
-                        info!("new incoming connection {}", i);
+                        debug!("new incoming connection {}", i);
                         let task = client.clone();
                         // spawn a new task for each client
                         tokio::spawn(async move { handle_client_requests(client_stream, task).await });
@@ -246,10 +246,10 @@ mod server {
         while let Ok(op) = ServerOp::decode(&mut client_stream).await {
             match op {
                 ServerOp::Interact((input, pattern)) => {
-                    info!("client asked for interaction with input and read-pattern");
+                    debug!("client asked for interaction with input and read-pattern");
                     match task.interact(&input, &pattern).await {
                         Ok(txt) => {
-                            info!("sending client text read from stdout");
+                            debug!("sending client text read from stdout");
                             codec::send_msg_encode(&mut client_stream, &txt).await.unwrap();
                         }
                         Err(err) => {
@@ -258,7 +258,7 @@ mod server {
                     }
                 }
                 ServerOp::Control(sig) => {
-                    info!("client sent control signal {:?}", sig);
+                    debug!("client sent control signal {:?}", sig);
                     match sig {
                         codec::Signal::Quit => task.terminate().await.ok(),
                         codec::Signal::Pause => task.pause().await.ok(),
@@ -289,7 +289,7 @@ mod client {
     impl Client {
         /// Make connection to unix domain socket server
         pub async fn connect(socket_file: &Path) -> Result<Self> {
-            info!("Connect to socket server: {:?}", socket_file);
+            debug!("Connect to socket server: {:?}", socket_file);
             let stream = UnixStream::connect(socket_file)
                 .await
                 .with_context(|| format!("connect to socket file failure: {:?}", socket_file))?;
@@ -301,7 +301,7 @@ mod client {
         /// Interact with background server using `input` for stdin and
         /// `read_pattern` for reading stdout.
         pub async fn interact(&mut self, input: &str, read_pattern: &str) -> Result<String> {
-            info!("Interact with server process ...");
+            debug!("Interact with server process ...");
             let op = codec::ServerOp::Interact((input.to_string(), read_pattern.to_string()));
             self.send_op(op).await?;
 
@@ -335,7 +335,7 @@ mod client {
 
         /// Send control signal to server
         async fn send_op_control(&mut self, sig: codec::Signal) -> Result<()> {
-            info!("Send control signal {:?}", sig);
+            debug!("Send control signal {:?}", sig);
             let op = codec::ServerOp::Control(sig);
             self.send_op(op).await?;
 

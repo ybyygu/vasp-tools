@@ -73,7 +73,7 @@ pub mod incar {
 // [[file:../vasp-tools.note::*pub][pub:1]]
 /// Update INCAR file in current directory for BBM calculation
 pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
-    info!("Update INCAR for VASP calculation: interactive = {:?}", interactive);
+    debug!("Update INCAR for VASP calculation: interactive = {:?}", interactive);
 
     let mandatory_params = if interactive {
         vec![

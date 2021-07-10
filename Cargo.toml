@@ -1,29 +1,29 @@
 # [[file:vasp-tools.note::*cargo.toml][cargo.toml:1]]
 [package]
 name = "vasp-tools"
-version = "0.0.12"
+version = "0.0.13"
 edition = "2018"
 authors = ["Wenping Guo <ybyygu@gmail.com>"]
 
 [dependencies]
 gosh = { version = ">=0.0.1", features=["adhoc"] }
-nix = "0.19"
+# nix = "0.19"
 bstr = "0.2"
 fs2 = "0.4"
 bytes = "1"
 structopt = "0.3"
 tempfile = "3.0"
 duct = "0.13"
-psutil = "3"
+# psutil = "3"
 envfile = "0.2"
 chrono = "0.4"
 vecfx = "0.1"
 approx = "0.5"
 gut = { version = "0.1.5", package = "gchemol-gut" }
 text_parser = { version = "0.3.0", package = "gchemol-parser" }
-rexpect = "0.4"
-libc = "0.2"
-shared_child = "0.3"
+# rexpect = "0.4"
+# libc = "0.2"
+# shared_child = "0.3"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.6"
 futures = "0.3"
