@@ -81,6 +81,7 @@ pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
             "NSW = 99999",    // a large enough value is required to prevent early exit of VASP
             "IBRION = -1",    // for static energy/force calculation
             "NWRITE = 1",     // setting NWRITE=0 could missing energy/forces in OUTCAR or stdout
+            "NELMIN=10",      // insure accuracy when input a close structure to the previous step
             "INTERACTIVE = .TRUE.",
             "LCHARG = .FALSE.", // avoid creating large files
             "LWAVE  = .FALSE.",
@@ -145,7 +146,7 @@ pub mod stopcar {
     use super::*;
 
     pub fn write() -> Result<()> {
-        info!("Writing STOPCAR ...");
+        debug!("Writing STOPCAR ...");
         gut::fs::write_to_file("STOPCAR", "LABORT = .TRUE.\n").context("write STOPCAR")?;
 
         Ok(())
