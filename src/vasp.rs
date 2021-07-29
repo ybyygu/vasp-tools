@@ -325,8 +325,10 @@ pub mod outcar {
                 } else if line.starts_with(" number of electron") {
                     //  number of electron     699.9999451 magnetization     114.0418239
                     let attrs: Vec<_> = line.split_whitespace().collect();
-                    assert_eq!(attrs.len(), 6);
-                    part.mag = attrs[5].parse().ok();
+                    assert!(attrs.len() >= 5, "{:?}", attrs);
+                    if attrs.len() > 5 {
+                        part.mag = attrs[5].parse().ok();
+                    }
                 }
             }
             part.nscf = nscf.into();
