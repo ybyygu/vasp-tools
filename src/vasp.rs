@@ -287,6 +287,9 @@ pub mod stdout {
 pub mod outcar {
     use super::*;
 
+    use gchemol::prelude::*;
+    use gchemol::Molecule;
+    use gosh::gchemol;
     use text_parser::TextReader;
 
     #[derive(Debug, Default, Clone)]
@@ -297,18 +300,32 @@ pub mod outcar {
         nscf: Option<usize>,
         volume: Option<f64>,
         mag: Option<f64>,
+        fmax: Option<f64>,
     }
 
     /// Parse OUTCAR file
     pub fn summarize_outcar(f: &Path) -> Result<()> {
         use std::io::BufRead;
+
         let r = TextReader::from_path(f)?;
         let parts = r.partitions_preceded(|line| line.contains("FREE ENERGIE OF THE ION-ELECTRON SYSTEM"));
+
+        // read selective dynamics flags from POSCAR of CONTCAR
+        let fposcar = f.with_file_name("POSCAR");
+        let fcontcar = f.with_file_name("CONTCAR");
+        let mol: Molecule = if fposcar.exists() {
+            Molecule::from_file(&fposcar)?
+        } else if fcontcar.exists() {
+            Molecule::from_file(&fcontcar)?
+        } else {
+            bail!("no POSCAR of CONTCAR");
+        };
 
         for (i, p) in parts.skip(1).enumerate() {
             let mut part = OptIter::default();
             part.i = i;
             let mut nscf = 0;
+            part.fmax = read_forces_and_fmax(&p, &mol);
             for line in p.lines() {
                 if line.contains("free  energy   TOTEN  =") {
                     let attrs: Vec<_> = line.split_whitespace().collect();
@@ -337,11 +354,42 @@ pub mod outcar {
         Ok(())
     }
 
+    fn read_forces_and_fmax(s: &str, mol: &Molecule) -> Option<f64> {
+        use vecfx::*;
+
+        let token = "TOTAL-FORCE (eV/Angst)";
+        let natoms = mol.natoms();
+        let mut r = TextReader::from_str(s);
+        let _ = r.seek_line(|line| line.contains(token));
+        let mut lines = r.lines().take(natoms + 2);
+        let first_line = lines.next()?;
+        if first_line.contains(token) {
+            //      -0.04844      0.25073      4.19570         0.005351      0.001537     -0.846521
+            let forces: Vec<f64> = lines
+                .skip(1)
+                .flat_map(|line| {
+                    let f3: Vec<_> = line.split_whitespace().skip(3).map(|x| x.parse().unwrap()).collect();
+                    f3
+                })
+                .collect();
+            let mask = mol.freezing_coords_mask();
+            let forces_masked = mask.apply(&forces);
+            let fmax = forces_masked.as_3d().iter().map(|x| x.vec2norm()).float_max();
+            fmax.into()
+        } else {
+            None
+        }
+    }
+
     fn show_iter(p: &OptIter) {
         let e = p.energy.map(|e| format!("{:.6}", e)).unwrap_or(format!("{:}", "--"));
+        let fmax = p.fmax.map(|f| format!("{:.6}", f)).unwrap_or(format!("{:4}", "--"));
         let nscf = p.nscf.map(|n| format!("{:4}", n)).unwrap_or(format!("{:4}", "--"));
         let mag = p.mag.map(|m| format!("{:.2}", m)).unwrap_or(format!("{:4}", "--"));
-        println!("{:<6} Energy: {:12} SCF: {:} Mag: {:6}", p.i, e, nscf, mag);
+        println!(
+            "{:<6} Energy: {:12} fmax: {:12} SCF: {:} Mag: {:6}",
+            p.i, e, fmax, nscf, mag
+        );
     }
 
     #[test]
