@@ -308,7 +308,7 @@ pub mod outcar {
         use std::io::BufRead;
 
         let r = TextReader::from_path(f)?;
-        let parts = r.partitions_preceded(|line| line.contains("FREE ENERGIE OF THE ION-ELECTRON SYSTEM"));
+        let mut parts = r.partitions_preceded(|line| line.contains("FREE ENERGIE OF THE ION-ELECTRON SYSTEM"));
 
         // read selective dynamics flags from POSCAR of CONTCAR
         let fposcar = f.with_file_name("POSCAR");
@@ -321,11 +321,19 @@ pub mod outcar {
             bail!("no POSCAR of CONTCAR");
         };
 
+        let mut old_partition = parts.next().ok_or(format_err!("OUTCAR has no partition"))?;
         for (i, p) in parts.skip(1).enumerate() {
+            // the first part has no energy. we have to parse forces from the previous partition
+            //
+            // FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)
+            // ---------------------------------------------------
+            // free  energy   TOTEN  =      -402.83834064 eV
+            //
+            // energy  without entropy=     -402.84358808  energy(sigma->0) =     -402.84008979
             let mut part = OptIter::default();
             part.i = i;
+            part.fmax = read_forces_and_fmax(&old_partition, &mol);
             let mut nscf = 0;
-            part.fmax = read_forces_and_fmax(&p, &mol);
             for line in p.lines() {
                 if line.contains("free  energy   TOTEN  =") {
                     let attrs: Vec<_> = line.split_whitespace().collect();
@@ -348,6 +356,7 @@ pub mod outcar {
                     }
                 }
             }
+            old_partition = p;
             part.nscf = nscf.into();
             show_iter(&part);
         }
