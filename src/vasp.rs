@@ -71,12 +71,27 @@ pub mod incar {
 // update params:1 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
-/// Update INCAR file in current directory for BBM calculation
-pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
-    debug!("Update INCAR for VASP calculation: interactive = {:?}", interactive);
+#[derive(Debug, Clone, Copy)]
+pub enum VaspTask {
+    Interactive,
+    SinglePoint,
+    Frequency,
+}
 
-    let mandatory_params = if interactive {
-        vec![
+/// Update INCAR file in current directory for BBM calculation
+pub fn update_incar_for_bbm(task: VaspTask) -> Result<()> {
+    debug!("Update INCAR for VASP calculation: task = {:?}", task);
+
+    let mandatory_params = task.mandatory_params();
+    let updated_incar = crate::vasp::incar::update_with_mandatory_params("INCAR".as_ref(), &mandatory_params)?;
+    gut::fs::write_to_file("INCAR", &updated_incar)?;
+
+    Ok(())
+}
+
+impl VaspTask {
+    fn mandatory_params(&self) -> Vec<&str> {
+        let interactive_params = vec![
             "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
             "NSW = 99999",    // a large enough value is required to prevent early exit of VASP
             "IBRION = -1",    // for static energy/force calculation
@@ -87,9 +102,9 @@ pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
             "LWAVE  = .FALSE.",
             "POTIM = 0",
             "ISYM = 0",
-        ]
-    } else {
-        vec![
+        ];
+
+        let single_point_params = vec![
             "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
             "NSW = 0",        // one time single point calculation for energy and forces
             "IBRION = -1",    // for static energy/force calculation
@@ -97,13 +112,23 @@ pub fn update_incar_for_bbm(interactive: bool) -> Result<()> {
             "INTERACTIVE = .FALSE.",
             "POTIM = 0",
             "ISYM = 0",
-        ]
-    };
+        ];
 
-    let updated_incar = crate::vasp::incar::update_with_mandatory_params("INCAR".as_ref(), &mandatory_params)?;
-    gut::fs::write_to_file("INCAR", &updated_incar)?;
+        // remove NPAR and NCORE?
+        let frequency_params = vec![
+            "NFREE = 2",
+            "POTIM = 0.015",
+            "IBRION = 5",
+            "LCHARG = .FALSE.", // avoid creating large files
+            "LWAVE  = .FALSE.",
+        ];
 
-    Ok(())
+        match self {
+            Self::Interactive => interactive_params,
+            Self::SinglePoint => single_point_params,
+            Self::Frequency => frequency_params,
+        }
+    }
 }
 // pub:1 ends here
 

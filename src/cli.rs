@@ -94,8 +94,13 @@ struct ServerCli {
 
     /// Run VASP for one-time single point calculation. The mandatory
     /// parameters in INCAR will be automatically updated.
-    #[structopt(long, conflicts_with = "interactive")]
+    #[structopt(long, conflicts_with = "interactive, frequency")]
     single_point: bool,
+
+    /// Run VASP for frequency calculation. The mandatory parameters in INCAR
+    /// will be automatically updated.
+    #[structopt(long, conflicts_with = "interactive, single_point")]
+    frequency: bool,
 
     /// Run VASP in interactive mode for long-live calculation. The
     /// mandatory parameters in INCAR will be automatically updated.
@@ -109,6 +114,8 @@ struct ServerCli {
 
 #[tokio::main]
 pub async fn run_vasp_enter_main() -> Result<()> {
+    use crate::vasp::VaspTask;
+
     let args = ServerCli::from_args();
     args.verbose.setup_logger();
 
@@ -117,13 +124,20 @@ pub async fn run_vasp_enter_main() -> Result<()> {
 
     if interactive {
         debug!("Run VASP for interactive calculation ...");
-        crate::vasp::update_incar_for_bbm(interactive)?;
+        crate::vasp::update_incar_for_bbm(VaspTask::Interactive)?;
         crate::socket::Server::create(&args.socket_file)?
             .run_and_serve(vasp_program)
             .await;
     } else {
-        debug!("Run VASP for one time single-point calculation ...");
-        crate::vasp::update_incar_for_bbm(false)?;
+        let task = if args.single_point {
+            VaspTask::SinglePoint
+        } else if args.frequency {
+            VaspTask::Frequency
+        } else {
+            todo!();
+        };
+        debug!("Run VASP for {:?} calculation ...", task);
+        crate::vasp::update_incar_for_bbm(task)?;
         // NOTE: we need handle duct::IntoExecutablePath trick. In duct
         // crate, the Path has different semantics with `String`: a program
         // registered under PATH env var or the path (relative or full) to
