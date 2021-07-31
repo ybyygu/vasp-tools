@@ -88,9 +88,10 @@ struct ServerCli {
     #[structopt(flatten)]
     verbose: gut::cli::Verbosity,
 
-    /// The command or the path to invoking VASP program
+    /// The command or the path to invoking VASP program. If not provided, only
+    /// the INCAR will be updated.
     #[structopt(short = "x")]
-    program: PathBuf,
+    program: Option<PathBuf>,
 
     /// Run VASP for one-time single point calculation. The mandatory
     /// parameters in INCAR will be automatically updated.
@@ -123,44 +124,49 @@ pub async fn run_vasp_enter_main() -> Result<()> {
     let interactive = args.interactive;
 
     if interactive {
-        debug!("Run VASP for interactive calculation ...");
         crate::vasp::update_incar_for_bbm(VaspTask::Interactive)?;
-        crate::socket::Server::create(&args.socket_file)?
-            .run_and_serve(vasp_program)
-            .await;
+        if let Some(vasp_program) = &args.program {
+            debug!("Run VASP for interactive calculation ...");
+            crate::socket::Server::create(&args.socket_file)?
+                .run_and_serve(vasp_program)
+                .await;
+        }
     } else {
         let task = if args.single_point {
             VaspTask::SinglePoint
         } else if args.frequency {
             VaspTask::Frequency
         } else {
-            todo!();
+            ServerCli::clap().print_help();
+            return Ok(());
         };
-        debug!("Run VASP for {:?} calculation ...", task);
         crate::vasp::update_incar_for_bbm(task)?;
-        // NOTE: we need handle duct::IntoExecutablePath trick. In duct
-        // crate, the Path has different semantics with `String`: a program
-        // registered under PATH env var or the path (relative or full) to
-        // the program file?
-        let _cmd = vasp_program.to_string_lossy();
-        if _cmd.contains("/") {
-            duct::cmd!(vasp_program)
-        } else {
-            duct::cmd!(_cmd.into_owned())
-        }
-        .unchecked()
-        .run()
-        .with_context(|| format!("Run VASP failure using {:?}", vasp_program))?;
+        if let Some(vasp_program) = &args.program {
+            debug!("Run VASP for {:?} calculation ...", task);
+            // NOTE: we need handle duct::IntoExecutablePath trick. In duct
+            // crate, the Path has different semantics with `String`: a program
+            // registered under PATH env var or the path (relative or full) to
+            // the program file?
+            let _cmd = vasp_program.to_string_lossy();
+            if _cmd.contains("/") {
+                duct::cmd!(vasp_program)
+            } else {
+                duct::cmd!(_cmd.into_owned())
+            }
+            .unchecked()
+            .run()
+            .with_context(|| format!("Run VASP failure using {:?}", vasp_program))?;
 
-        // or we can use `std::process::Command` directly
-        //
-        // if let Err(e) = std::process::Command::new(vasp_program)
-        //     .spawn()
-        //     .with_context(|| format!("run vasp program: {:?}", vasp_program))?
-        //     .wait()
-        // {
-        //     error!("wait vasp process error: {:?}", e);
-        // }
+            // or we can use `std::process::Command` directly
+            //
+            // if let Err(e) = std::process::Command::new(vasp_program)
+            //     .spawn()
+            //     .with_context(|| format!("run vasp program: {:?}", vasp_program))?
+            //     .wait()
+            // {
+            //     error!("wait vasp process error: {:?}", e);
+            // }
+        }
     }
 
     Ok(())

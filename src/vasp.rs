@@ -116,9 +116,12 @@ impl VaspTask {
 
         // remove NPAR and NCORE?
         let frequency_params = vec![
+            "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
+            "NSW = 1",        // one time single point calculation for energy and forces
             "NFREE = 2",
             "POTIM = 0.015",
             "IBRION = 5",
+            "INTERACTIVE = .FALSE.",
             "LCHARG = .FALSE.", // avoid creating large files
             "LWAVE  = .FALSE.",
         ];
