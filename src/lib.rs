@@ -47,4 +47,6 @@ pub(crate) mod common {
 // [[file:../vasp-tools.note::*pub][pub:1]]
 pub use crate::cli::*;
 pub use crate::session::*;
+
+pub use crate::vasp::VaspOutcar;
 // pub:1 ends here

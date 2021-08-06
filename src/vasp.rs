@@ -6,6 +6,14 @@
 use crate::common::*;
 // imports:1 ends here
 
+// [[file:../vasp-tools.note::*mods][mods:1]]
+mod freq;
+// mods:1 ends here
+
+// [[file:../vasp-tools.note::*pub][pub:1]]
+pub use freq::VaspOutcar;
+// pub:1 ends here
+
 // [[file:../vasp-tools.note::*update params][update params:1]]
 /// Handle VASP INCAR file
 pub mod incar {

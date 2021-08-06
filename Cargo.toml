@@ -1,7 +1,7 @@
 # [[file:vasp-tools.note::*cargo.toml][cargo.toml:1]]
 [package]
 name = "vasp-tools"
-version = "0.0.14"
+version = "0.0.15"
 edition = "2018"
 authors = ["Wenping Guo <ybyygu@gmail.com>"]
 
