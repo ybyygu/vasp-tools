@@ -93,6 +93,10 @@ struct ServerCli {
     #[structopt(short = "x")]
     program: Option<PathBuf>,
 
+    /// Instruct VASP to stop by writing a STOPCAR file in working directory.
+    #[structopt(long, name = "VASP_WORK_DIR")]
+    stop: Option<PathBuf>,
+
     /// Run VASP for one-time single point calculation. The mandatory
     /// parameters in INCAR will be automatically updated.
     #[structopt(long, conflicts_with = "interactive, frequency")]
@@ -119,6 +123,12 @@ pub async fn run_vasp_enter_main() -> Result<()> {
 
     let args = ServerCli::from_args();
     args.verbose.setup_logger();
+
+    // write STOPCAR only
+    if let Some(wrk_dir) = &args.stop {
+        crate::vasp::stopcar::write(wrk_dir)?;
+        return Ok(());
+    }
 
     let vasp_program = &args.program;
     let interactive = args.interactive;
