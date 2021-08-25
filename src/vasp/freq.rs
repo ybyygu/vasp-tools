@@ -16,7 +16,7 @@ pub struct VaspOutcar {
 
 // [[file:../../vasp-tools.note::*grep][grep:1]]
 impl VaspOutcar {
-    fn parse_last_imaginary_freq_mode_from(f: &Path) -> Result<Vec<[f64; 3]>> {
+    pub fn parse_last_imaginary_freq_mode_from(f: &Path) -> Result<Vec<[f64; 3]>> {
         let mut reader = GrepReader::try_from_path(f)?;
         let mut s = String::new();
         reader.read_lines(1, &mut s)?;
@@ -31,6 +31,7 @@ impl VaspOutcar {
         println!("set up {} markers", n);
         assert!(n >= 2, "at least one imaginary frequency required (n={})", n);
         s.clear();
+        reader.goto_marker(0);
         reader.read_lines(1, &mut s)?;
         let natoms = parse::parse_number_of_atoms(dbg!(&s))?;
 

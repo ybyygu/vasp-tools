@@ -263,6 +263,43 @@ pub async fn ipi_client_enter_main() -> Result<()> {
 }
 // ipi:1 ends here
 
+// [[file:../vasp-tools.note::*vibrational mode][vibrational mode:1]]
+/// A helper program for run VASP calculations
+#[derive(Debug, StructOpt)]
+struct VibCli {
+    #[structopt(flatten)]
+    verbose: gut::cli::Verbosity,
+
+    /// Extract last imaginary frequency mode
+    #[structopt(long, name = "OUTCAR")]
+    extract_vib_mode: PathBuf,
+
+    /// Run VASP for frequency calculation. The mandatory parameters in INCAR
+    /// will be automatically updated.
+    #[structopt(long, conflicts_with = "interactive, single_point")]
+    frequency: bool,
+
+    /// The output file for writing vibrational mode
+    #[structopt(short = "o")]
+    outfile: PathBuf,
+}
+
+pub fn vib_mode_enter_main() -> Result<()> {
+    let args = VibCli::from_args();
+    args.verbose.setup_logger();
+
+    let outcar = &args.extract_vib_mode;
+    let mode = crate::vasp::VaspOutcar::parse_last_imaginary_freq_mode_from(outcar)?;
+    let s: String = mode
+        .into_iter()
+        .map(|x| format!("{:-18.6} {:-18.6} {:-18.6}\n", x[0], x[1], x[2]))
+        .collect();
+    gut::fs::write_to_file(&args.outfile, &s)?;
+
+    Ok(())
+}
+// vibrational mode:1 ends here
+
 // [[file:../vasp-tools.note::*summary][summary:1]]
 pub fn vasp_summary_enter_main() -> Result<()> {
     crate::vasp::outcar::summarize_outcar("OUTCAR".as_ref())?;
