@@ -1,12 +1,12 @@
 # [[file:vasp-tools.note::*cargo.toml][cargo.toml:1]]
 [package]
 name = "vasp-tools"
-version = "0.0.15"
+version = "0.0.16"
 edition = "2018"
 authors = ["Wenping Guo <ybyygu@gmail.com>"]
 
 [dependencies]
-gosh = { version = "=0.0.29", features=["adhoc"] }
+gosh = { version = "=0.0.30", features=["adhoc"] }
 # nix = "0.19"
 bstr = "0.2"
 fs2 = "0.4"

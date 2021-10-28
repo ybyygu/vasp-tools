@@ -300,9 +300,23 @@ pub fn vib_mode_enter_main() -> Result<()> {
 }
 // vibrational mode:1 ends here
 
-// [[file:../vasp-tools.note::*summary][summary:1]]
+// [[file:../vasp-tools.note::3fdb5cf5][3fdb5cf5]]
+#[derive(Debug, StructOpt)]
+/// Show a summary on VASP OUTCAR
+struct SummaryCli {
+    #[structopt(flatten)]
+    verbose: gut::cli::Verbosity,
+
+    /// Show a plot on optimization.
+    #[structopt(long)]
+    plot: bool,
+}
+
 pub fn vasp_summary_enter_main() -> Result<()> {
-    crate::vasp::outcar::summarize_outcar("OUTCAR".as_ref())?;
+    let args = SummaryCli::from_args();
+    args.verbose.setup_logger();
+
+    crate::vasp::outcar::summarize_outcar("OUTCAR".as_ref(), args.plot)?;
     Ok(())
 }
-// summary:1 ends here
+// 3fdb5cf5 ends here

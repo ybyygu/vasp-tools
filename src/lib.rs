@@ -6,10 +6,11 @@ use std::path::{Path, PathBuf};
 extern crate approx; // For the macro relative_eq!
 // imports:1 ends here
 
-// [[file:../vasp-tools.note::*mods][mods:1]]
+// [[file:../vasp-tools.note::a397a097][a397a097]]
 mod cli;
 mod interactive;
 mod ipi;
+mod plot;
 mod session;
 mod socket;
 mod vasp;
@@ -42,7 +43,7 @@ pub(crate) mod common {
         }
     }
 }
-// mods:1 ends here
+// a397a097 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]
 pub use crate::cli::*;

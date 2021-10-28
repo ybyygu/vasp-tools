@@ -319,7 +319,7 @@ pub mod stdout {
 }
 // stdout:1 ends here
 
-// [[file:../vasp-tools.note::*outcar][outcar:1]]
+// [[file:../vasp-tools.note::0cf24c08][0cf24c08]]
 pub mod outcar {
     use super::*;
 
@@ -340,7 +340,7 @@ pub mod outcar {
     }
 
     /// Parse OUTCAR file
-    pub fn summarize_outcar(f: &Path) -> Result<()> {
+    pub fn summarize_outcar(f: &Path, plot: bool) -> Result<()> {
         use std::io::BufRead;
 
         let r = TextReader::from_path(f)?;
@@ -358,6 +358,7 @@ pub mod outcar {
         };
 
         let mut old_partition = parts.next().ok_or(format_err!("OUTCAR has no partition"))?;
+        let mut collected_parts = vec![];
         for (i, p) in parts.skip(1).enumerate() {
             // the first part has no energy. we have to parse forces from the previous partition
             //
@@ -394,7 +395,24 @@ pub mod outcar {
             }
             old_partition = p;
             part.nscf = nscf.into();
-            show_iter(&part);
+            // show_iter(&part);
+            collected_parts.push(part);
+        }
+        if plot {
+            use crate::plot::AsciiPlot;
+            let mut ascii_plot = AsciiPlot::new();
+
+            ascii_plot.set_title("Geometry optimization");
+            ascii_plot.set_xlabel("opt. step");
+            ascii_plot.set_ylabel("energy (eV)");
+            let x = collected_parts.iter().map(|o| o.i as f64).collect_vec();
+            let y = collected_parts.iter().map(|o| o.energy.unwrap() as f64).collect_vec();
+            let s = ascii_plot.plot(&x, &y)?;
+            println!("{}", s);
+        } else {
+            for part in collected_parts {
+                show_iter(&part);
+            }
         }
         Ok(())
     }
@@ -443,4 +461,4 @@ pub mod outcar {
         summarize_outcar("tests/files/OUTCAR".as_ref());
     }
 }
-// outcar:1 ends here
+// 0cf24c08 ends here
