@@ -39,13 +39,13 @@ impl AsciiPlot {
 
         let mut plot_script = String::new();
         writeln!(&mut plot_script, "set terminal dumb")?;
+        writeln!(&mut plot_script, "unset key")?;
         writeln!(&mut plot_script, "set title \"{}\"", self.title)?;
         writeln!(&mut plot_script, "set xlabel \"{}\"", self.xlabel)?;
         writeln!(&mut plot_script, "set ylabel \"{}\"", self.ylabel)?;
         writeln!(&mut plot_script, "set format y \"%-0.2f\"")?;
         writeln!(&mut plot_script, "set tics scale 0")?;
-        writeln!(&mut plot_script, "unset key")?;
-        writeln!(&mut plot_script, "plot \"{}\" using 1:2 with dots", data_file)?;
+        writeln!(&mut plot_script, "plot \"{}\" using 1:2 with lp", data_file)?;
 
         // create data file in temp dir
         // Create a directory inside of `std::env::temp_dir()`
@@ -62,26 +62,30 @@ impl AsciiPlot {
 
 // [[file:../vasp-tools.note::ac52b11c][ac52b11c]]
 #[test]
-#[ignore]
 fn test_gnuplot_ascii_plot() {
     let mut ascii_plot = AsciiPlot::new();
-    ascii_plot.set_title("Geometry optimization");
-    ascii_plot.set_xlabel("energy (eV)");
-    ascii_plot.set_ylabel("opt. step");
+    // ascii_plot.set_title("Geometry optimization");
+    // ascii_plot.set_xlabel("opt. step");
+    ascii_plot.set_title("Reaction path optimization");
+    ascii_plot.set_xlabel("reaction path");
+    ascii_plot.set_ylabel("energy (eV)");
 
+    // let y = vec![
+    //     -369.604028,
+    //     -369.700139,
+    //     -369.708766,
+    //     -369.739834,
+    //     -369.804727,
+    //     -369.809632,
+    //     -369.828092,
+    //     -369.856902,
+    //     -369.943526,
+    //     -370.076070,
+    // ];
     let y = vec![
-        -369.604028,
-        -369.700139,
-        -369.708766,
-        -369.739834,
-        -369.804727,
-        -369.809632,
-        -369.828092,
-        -369.856902,
-        -369.943526,
-        -370.076070,
-        -369.421450,
+        -1386.3788, -1386.1684, -1384.9314, -1385.2560, -1385.3613, -1385.4224, -1385.4590, -1385.4741,
     ];
+
     let x: Vec<_> = (0..y.len()).map(|x| x as f64).collect();
 
     let s = ascii_plot.plot(&x, &y).unwrap();

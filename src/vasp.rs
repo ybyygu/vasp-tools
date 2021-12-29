@@ -458,7 +458,7 @@ pub mod outcar {
     #[test]
     #[ignore]
     fn test_outcar_parser() {
-        summarize_outcar("tests/files/OUTCAR".as_ref());
+        summarize_outcar("tests/files/OUTCAR".as_ref(), false);
     }
 }
 // 0cf24c08 ends here

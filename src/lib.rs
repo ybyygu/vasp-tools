@@ -9,7 +9,6 @@ extern crate approx; // For the macro relative_eq!
 // [[file:../vasp-tools.note::a397a097][a397a097]]
 mod cli;
 mod interactive;
-mod ipi;
 mod plot;
 mod session;
 mod socket;

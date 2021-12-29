@@ -183,7 +183,7 @@ pub async fn run_vasp_enter_main() -> Result<()> {
 }
 // server:1 ends here
 
-// [[file:../vasp-tools.note::*client][client:1]]
+// [[file:../vasp-tools.note::28b92274][28b92274]]
 /// A client of a unix domain socket server for interacting with the program
 /// run in background
 #[derive(Debug, StructOpt)]
@@ -223,45 +223,7 @@ pub async fn vasp_client_enter_main() -> Result<()> {
 
     Ok(())
 }
-// client:1 ends here
-
-// [[file:../vasp-tools.note::*ipi][ipi:1]]
-#[derive(Debug, StructOpt)]
-struct IpiCli {
-    #[structopt(flatten)]
-    verbose: gut::cli::Verbosity,
-
-    /// path to bbm template
-    #[structopt(short = "t")]
-    bbm: PathBuf,
-
-    /// path to molecule to compute
-    mol: PathBuf,
-
-    /// path to unix domain sock
-    #[structopt(short = "u", default_value = "ipi.sock")]
-    sock: PathBuf,
-}
-
-#[tokio::main]
-pub async fn ipi_client_enter_main() -> Result<()> {
-    use gosh::gchemol::prelude::*;
-    use gosh::gchemol::Molecule;
-    use gosh::model::BlackBoxModel;
-
-    let args = IpiCli::from_args();
-    args.verbose.setup_logger();
-
-    let mut bbm = BlackBoxModel::from_dir(&args.bbm)?;
-    let mol = Molecule::from_file(&args.mol)?;
-
-    dbg!();
-    crate::ipi::bbm_as_ipi_client(bbm, mol, &args.sock).await?;
-    dbg!();
-
-    Ok(())
-}
-// ipi:1 ends here
+// 28b92274 ends here
 
 // [[file:../vasp-tools.note::*vibrational mode][vibrational mode:1]]
 /// A helper program for run VASP calculations
