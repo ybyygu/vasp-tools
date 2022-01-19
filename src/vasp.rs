@@ -78,16 +78,18 @@ pub mod incar {
 }
 // update params:1 ends here
 
-// [[file:../vasp-tools.note::*pub][pub:1]]
-#[derive(Debug, Clone, Copy)]
+// [[file:../vasp-tools.note::57803ca9][57803ca9]]
+#[derive(Debug, Clone)]
 pub enum VaspTask {
     Interactive,
     SinglePoint,
     Frequency,
+    /// Magnetic configuration using MAGMOM keyword
+    Magnetic(String),
 }
 
 /// Update INCAR file in current directory for BBM calculation
-pub fn update_incar_for_bbm(task: VaspTask) -> Result<()> {
+pub fn update_incar_for_bbm(task: &VaspTask) -> Result<()> {
     debug!("Update INCAR for VASP calculation: task = {:?}", task);
 
     let mandatory_params = task.mandatory_params();
@@ -122,6 +124,18 @@ impl VaspTask {
             "ISYM = 0",
         ];
 
+        let mut magnetic_params = vec![
+            "ISPIN = 2",
+            "ISTART = 1",
+            "ICHARG = 1",
+            "NSW = 0",     // one time single point calculation for energy and forces
+            "IBRION = -1", // for static energy/force calculation
+            "NWRITE = 1",  // setting NWRITE=0 could missing energy/forces in OUTCAR or stdout
+            "INTERACTIVE = .FALSE.",
+            "POTIM = 0",
+            "ISYM = 0",
+        ];
+
         // remove NPAR and NCORE?
         let frequency_params = vec![
             "EDIFFG = -1E-5", // a small enough value is required to prevent early exit of VASP
@@ -138,10 +152,15 @@ impl VaspTask {
             Self::Interactive => interactive_params,
             Self::SinglePoint => single_point_params,
             Self::Frequency => frequency_params,
+            Self::Magnetic(mag) => {
+                let magmom = "MAGMOM = {mag}";
+                magnetic_params.push(magmom);
+                magnetic_params
+            }
         }
     }
 }
-// pub:1 ends here
+// 57803ca9 ends here
 
 // [[file:../vasp-tools.note::*poscar][poscar:1]]
 /// Handle VASP POSCAR file

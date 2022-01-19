@@ -81,7 +81,7 @@ pub fn simulate_interactive_vasp() -> Result<()> {
 }
 // vasp:1 ends here
 
-// [[file:../vasp-tools.note::*server][server:1]]
+// [[file:../vasp-tools.note::79d54340][79d54340]]
 /// A helper program for run VASP calculations
 #[derive(Debug, StructOpt)]
 struct ServerCli {
@@ -112,6 +112,11 @@ struct ServerCli {
     #[structopt(long, conflicts_with = "single_point")]
     interactive: bool,
 
+    /// Run VASP for static magnetic configuration calculation. The mandatory
+    /// parameters in INCAR will be automatically updated.
+    #[structopt(long, conflicts_with = "interactive, frequency, single_point")]
+    magnetic: Option<String>,
+
     /// Path to the socket file to bind (only valid for interactive calculation)
     #[structopt(short = "u", default_value = "vasp.sock")]
     socket_file: PathBuf,
@@ -134,7 +139,7 @@ pub async fn run_vasp_enter_main() -> Result<()> {
     let interactive = args.interactive;
 
     if interactive {
-        crate::vasp::update_incar_for_bbm(VaspTask::Interactive)?;
+        crate::vasp::update_incar_for_bbm(&VaspTask::Interactive)?;
         if let Some(vasp_program) = &args.program {
             debug!("Run VASP for interactive calculation ...");
             crate::socket::Server::create(&args.socket_file)?
@@ -147,10 +152,14 @@ pub async fn run_vasp_enter_main() -> Result<()> {
         } else if args.frequency {
             VaspTask::Frequency
         } else {
-            ServerCli::clap().print_help();
-            return Ok(());
+            if let Some(mag) = args.magnetic {
+                VaspTask::Magnetic(mag)
+            } else {
+                ServerCli::clap().print_help();
+                return Ok(());
+            }
         };
-        crate::vasp::update_incar_for_bbm(task)?;
+        crate::vasp::update_incar_for_bbm(&task)?;
         if let Some(vasp_program) = &args.program {
             debug!("Run VASP for {:?} calculation ...", task);
             // NOTE: we need handle duct::IntoExecutablePath trick. In duct
@@ -181,7 +190,7 @@ pub async fn run_vasp_enter_main() -> Result<()> {
 
     Ok(())
 }
-// server:1 ends here
+// 79d54340 ends here
 
 // [[file:../vasp-tools.note::28b92274][28b92274]]
 /// A client of a unix domain socket server for interacting with the program
