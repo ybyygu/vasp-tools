@@ -152,12 +152,8 @@ pub async fn run_vasp_enter_main() -> Result<()> {
         } else if args.frequency {
             VaspTask::Frequency
         } else {
-            if let Some(mag) = args.magnetic {
-                VaspTask::Magnetic(mag)
-            } else {
-                ServerCli::clap().print_help();
-                return Ok(());
-            }
+            ServerCli::clap().print_help();
+            return Ok(());
         };
         crate::vasp::update_incar_for_bbm(&task)?;
         if let Some(vasp_program) = &args.program {
