@@ -2,9 +2,9 @@
 //! Utilities for handling VASP input/output
 // docs:1 ends here
 
-// [[file:../vasp-tools.note::*imports][imports:1]]
-use crate::common::*;
-// imports:1 ends here
+// [[file:../vasp-tools.note::89f26dfd][89f26dfd]]
+use super::*;
+// 89f26dfd ends here
 
 // [[file:../vasp-tools.note::*mods][mods:1]]
 mod freq;

@@ -1,9 +1,9 @@
-// [[file:../../vasp-tools.note::*imports][imports:1]]
-use crate::common::*;
+// [[file:../../vasp-tools.note::0fc15e50][0fc15e50]]
+use super::*;
 
 use text_parser::GrepReader;
 use text_parser::TextReader;
-// imports:1 ends here
+// 0fc15e50 ends here
 
 // [[file:../../vasp-tools.note::*base][base:1]]
 /// Represent a VASP produced OUTCAR file

@@ -42,6 +42,7 @@ pub(crate) mod common {
         }
     }
 }
+use self::common::*;
 // a397a097 ends here
 
 // [[file:../vasp-tools.note::*pub][pub:1]]

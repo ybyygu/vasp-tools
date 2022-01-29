@@ -1,11 +1,11 @@
-// [[file:../vasp-tools.note::*imports][imports:1]]
+// [[file:../vasp-tools.note::9fd9c449][9fd9c449]]
 use crate::common::*;
 use crate::socket::Client;
 
 use gosh::model::ModelProperties;
 use gut::fs::*;
 use structopt::*;
-// imports:1 ends here
+// 9fd9c449 ends here
 
 // [[file:../vasp-tools.note::*vasp][vasp:1]]
 // const VASP_READ_PATTERN: &str = "POSITIONS: read from stdin";
@@ -111,11 +111,6 @@ struct ServerCli {
     /// mandatory parameters in INCAR will be automatically updated.
     #[structopt(long, conflicts_with = "single_point")]
     interactive: bool,
-
-    /// Run VASP for static magnetic configuration calculation. The mandatory
-    /// parameters in INCAR will be automatically updated.
-    #[structopt(long, conflicts_with = "interactive, frequency, single_point")]
-    magnetic: Option<String>,
 
     /// Path to the socket file to bind (only valid for interactive calculation)
     #[structopt(short = "u", default_value = "vasp.sock")]

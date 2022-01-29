@@ -17,8 +17,8 @@ envfile = "0.2"
 chrono = "0.4"
 vecfx = "0.1"
 approx = "0.5"
-gut = { version = "0.2", package = "gchemol-gut" }
 text_parser = { version = "0.3.0", package = "gchemol-parser" }
+gut = { version = "0.1", package = "gchemol-gut" }
 # rexpect = "0.4"
 # libc = "0.2"
 # shared_child = "0.3"
