@@ -1,8 +1,8 @@
-// [[file:../vasp-tools.note::*imports][imports:1]]
-use crate::common::*;
+// [[file:../vasp-tools.note::f711ab3d][f711ab3d]]
+use super::*;
 
 use std::process::Command;
-// imports:1 ends here
+// f711ab3d ends here
 
 // [[file:../vasp-tools.note::*codec][codec:1]]
 /// Shared codes for both server and client sides

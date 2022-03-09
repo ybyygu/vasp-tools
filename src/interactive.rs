@@ -2,14 +2,14 @@
 //! This mod is for VASP interactive calculations.
 // docs:1 ends here
 
-// [[file:../vasp-tools.note::*imports][imports:1]]
-use crate::common::*;
+// [[file:../vasp-tools.note::0bd38257][0bd38257]]
+use super::*;
 use crate::session::{Session, SessionHandler};
 
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::Notify;
-// imports:1 ends here
+// 0bd38257 ends here
 
 // [[file:../vasp-tools.note::*base][base:1]]
 #[derive(Debug, Clone)]

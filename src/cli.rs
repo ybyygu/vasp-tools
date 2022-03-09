@@ -1,5 +1,5 @@
 // [[file:../vasp-tools.note::9fd9c449][9fd9c449]]
-use crate::common::*;
+use super::*;
 use crate::socket::Client;
 
 use gosh::model::ModelProperties;
@@ -7,7 +7,7 @@ use gut::cli::*;
 use gut::fs::*;
 // 9fd9c449 ends here
 
-// [[file:../vasp-tools.note::*vasp][vasp:1]]
+// [[file:../vasp-tools.note::234c75e6][234c75e6]]
 // const VASP_READ_PATTERN: &str = "POSITIONS: read from stdin";
 const VASP_READ_PATTERN: &str = "POSITIONS: reading from stdin";
 
@@ -16,7 +16,7 @@ const VASP_READ_PATTERN: &str = "POSITIONS: reading from stdin";
 /// * control: try to pause/resume running process to reduce CPU usages
 async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Result<()> {
     use gosh::adaptor::ModelAdaptor;
-    
+
     // for the first time run, VASP reads coordinates from POSCAR
     let input: String = if !std::path::Path::new("OUTCAR").exists() {
         debug!("Write complete POSCAR file for initial calculation.");
@@ -55,6 +55,8 @@ async fn interactive_vasp_session_bbm(client: &mut Client, control: bool) -> Res
 
 /// for creating `fake-vasp` binary, simulating interactive VASP caclulation
 pub fn simulate_interactive_vasp() -> Result<()> {
+    use gut::utils::sleep;
+
     let part0 = include_str!("../tests/files/interactive_iter0.txt");
     let part1 = include_str!("../tests/files/interactive_iter1.txt");
     // let energy = "F= -.85097948E+02 E0= -.85096866E+02  d E =-.850979E+02  mag=     2.9646";
@@ -79,7 +81,7 @@ pub fn simulate_interactive_vasp() -> Result<()> {
     }
     Ok(())
 }
-// vasp:1 ends here
+// 234c75e6 ends here
 
 // [[file:../vasp-tools.note::79d54340][79d54340]]
 /// A helper program for run VASP calculations

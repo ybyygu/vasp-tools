@@ -2,11 +2,11 @@
 //! Run child processes in a new session group for easy to interact and control.
 // docs:1 ends here
 
-// [[file:../vasp-tools.note::*imports][imports:1]]
-use crate::common::*;
+// [[file:../vasp-tools.note::d4d00d6a][d4d00d6a]]
+use super::*;
 
 use gosh::runner::prelude::*; // spawn_session
-// imports:1 ends here
+// d4d00d6a ends here
 
 // [[file:../vasp-tools.note::*core/std][core/std:1]]
 mod core_std {
