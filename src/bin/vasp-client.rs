@@ -1,9 +1,9 @@
-// [[file:../../vasp-tools.note::*bin/vasp-client.rs][bin/vasp-client.rs:1]]
+// [[file:../../vasp-tools.note::83e5cf92][83e5cf92]]
 use gut::prelude::*;
 
 fn main() -> Result<()> {
-    vasp_tools::vasp_client_enter_main()?;
+    vasp_tools::cli::vasp_client_enter_main()?;
 
     Ok(())
 }
-// bin/vasp-client.rs:1 ends here
+// 83e5cf92 ends here

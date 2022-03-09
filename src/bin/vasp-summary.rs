@@ -1,9 +1,9 @@
-// [[file:../../vasp-tools.note::*bin/vasp-summary.rs][bin/vasp-summary.rs:1]]
+// [[file:../../vasp-tools.note::c99dc5eb][c99dc5eb]]
 use gut::prelude::*;
 
 fn main() -> Result<()> {
-    vasp_tools::vasp_summary_enter_main()?;
+    vasp_tools::cli::vasp_summary_enter_main()?;
 
     Ok(())
 }
-// bin/vasp-summary.rs:1 ends here
+// c99dc5eb ends here

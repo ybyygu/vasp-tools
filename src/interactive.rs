@@ -32,8 +32,8 @@ type RxControl = tokio::sync::mpsc::Receiver<Control>;
 type TxControl = tokio::sync::mpsc::Sender<Control>;
 // base:1 ends here
 
-// [[file:../vasp-tools.note::*task server][task server:1]]
-pub(crate) struct TaskServer {
+// [[file:../vasp-tools.note::0236f1ec][0236f1ec]]
+pub struct TaskServer {
     // for receiving interaction message for child process
     rx_int: Option<RxInteraction>,
     // for controlling child process
@@ -116,11 +116,11 @@ mod taskserver {
         Ok(false)
     }
 }
-// task server:1 ends here
+// 0236f1ec ends here
 
-// [[file:../vasp-tools.note::*task client][task client:1]]
+// [[file:../vasp-tools.note::d0da5283][d0da5283]]
 #[derive(Clone)]
-pub(crate) struct TaskClient {
+pub struct TaskClient {
     // for send client request for pause, resume, stop computation on server side
     tx_ctl: TxControl,
     // for interaction with child process on server side
@@ -170,12 +170,12 @@ mod taskclient {
         }
     }
 }
-// task client:1 ends here
+// d0da5283 ends here
 
-// [[file:../vasp-tools.note::*pub][pub:1]]
+// [[file:../vasp-tools.note::564109b4][564109b4]]
 /// Create task server and client. The client can be cloned and used in
 /// concurrent environment
-pub(crate) fn new_interactive_task(program: &Path) -> (TaskServer, TaskClient) {
+pub fn new_interactive_task(program: &Path) -> (TaskServer, TaskClient) {
     let command = Command::new(program);
 
     let (tx_int, rx_int) = tokio::sync::mpsc::channel(1);
@@ -203,7 +203,7 @@ pub(crate) fn new_interactive_task(program: &Path) -> (TaskServer, TaskClient) {
 
     (server, client)
 }
-// pub:1 ends here
+// 564109b4 ends here
 
 // [[file:../vasp-tools.note::*test][test:1]]
 #[cfg(test)]

@@ -7,14 +7,19 @@ extern crate approx; // For the macro relative_eq!
 // imports:1 ends here
 
 // [[file:../vasp-tools.note::a397a097][a397a097]]
-mod cli;
+pub mod cli;
 mod interactive;
 mod plot;
 mod session;
 mod socket;
 mod vasp;
+// a397a097 ends here
 
+// [[file:../vasp-tools.note::57018756][57018756]]
 use gut::prelude::*;
+
+use crate::session::*;
+use crate::vasp::VaspOutcar;
 
 /// Wait until file `f` available for max time of `timeout`.
 ///
@@ -40,11 +45,24 @@ fn wait_file(f: &Path, timeout: usize) -> Result<()> {
         }
     }
 }
-// a397a097 ends here
+// 57018756 ends here
 
-// [[file:../vasp-tools.note::*pub][pub:1]]
-pub use crate::cli::*;
-pub use crate::session::*;
+// [[file:../vasp-tools.note::242ad86a][242ad86a]]
+#[cfg(feature = "adhoc")]
+/// Docs for local mods
+pub mod docs {
+    macro_rules! export_doc {
+        ($l:ident) => {
+            pub mod $l {
+                pub use crate::$l::*;
+            }
+        };
+    }
 
-pub use crate::vasp::VaspOutcar;
-// pub:1 ends here
+    export_doc!(interactive);
+    export_doc!(session);
+    export_doc!(socket);
+    export_doc!(vasp);
+    export_doc!(plot);
+}
+// 242ad86a ends here

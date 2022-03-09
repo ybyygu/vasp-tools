@@ -1,9 +1,9 @@
-// [[file:../../vasp-tools.note::*bin/fake-vasp.rs][bin/fake-vasp.rs:1]]
+// [[file:../../vasp-tools.note::be828118][be828118]]
 use gut::prelude::*;
 
 fn main() -> Result<()> {
-    vasp_tools::simulate_interactive_vasp()?;
+    vasp_tools::cli::simulate_interactive_vasp()?;
 
     Ok(())
 }
-// bin/fake-vasp.rs:1 ends here
+// be828118 ends here
