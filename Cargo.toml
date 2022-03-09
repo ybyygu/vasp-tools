@@ -1,16 +1,14 @@
 # [[file:vasp-tools.note::58b3211f][58b3211f]]
 [package]
 name = "vasp-tools"
-version = "0.0.16"
+version = "0.0.17"
 edition = "2021"
 authors = ["Wenping Guo <ybyygu@gmail.com>"]
 
 [dependencies]
-gosh = { version = "=0.0.30", features=["adhoc"] }
-# nix = "0.19"
+gosh = { version = "0.1.0", features=["adhoc"] }
 bstr = "0.2"
 bytes = "1"
-structopt = "0.3"
 tempfile = "3.0"
 duct = "0.13"
 envfile = "0.2"
@@ -18,12 +16,14 @@ chrono = "0.4"
 vecfx = "0.1"
 approx = "0.5"
 text_parser = { version = "0.3.0", package = "gchemol-parser" }
-gut = { version = "0.1", package = "gchemol-gut" }
-# rexpect = "0.4"
-# libc = "0.2"
-# shared_child = "0.3"
+gut = { version = "0.2", package = "gchemol-gut" }
+clap = {version="3", features = ["derive"]}
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.6"
+# rexpect = "0.4"
+# libc = "0.2"
+# nix = "0.19"
+# shared_child = "0.3"
 
 [dev-dependencies]
 

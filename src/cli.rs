@@ -3,8 +3,8 @@ use crate::common::*;
 use crate::socket::Client;
 
 use gosh::model::ModelProperties;
+use gut::cli::*;
 use gut::fs::*;
-use structopt::*;
 // 9fd9c449 ends here
 
 // [[file:../vasp-tools.note::*vasp][vasp:1]]
@@ -90,7 +90,7 @@ struct ServerCli {
 
     /// The command or the path to invoking VASP program. If not provided, only
     /// the INCAR will be updated.
-    #[structopt(short = "x")]
+    #[structopt(short = 'x')]
     program: Option<PathBuf>,
 
     /// Instruct VASP to stop by writing a STOPCAR file in working directory.
@@ -113,7 +113,7 @@ struct ServerCli {
     interactive: bool,
 
     /// Path to the socket file to bind (only valid for interactive calculation)
-    #[structopt(short = "u", default_value = "vasp.sock")]
+    #[structopt(short = 'u', default_value = "vasp.sock")]
     socket_file: PathBuf,
 }
 
@@ -164,8 +164,8 @@ pub async fn run_vasp_enter_main() -> Result<()> {
                 duct::cmd!(_cmd.into_owned())
             }
             .unchecked()
-            .run()
-            .with_context(|| format!("Run VASP failure using {:?}", vasp_program))?;
+                .run()
+                .with_context(|| format!("Run VASP failure using {:?}", vasp_program))?;
 
             // or we can use `std::process::Command` directly
             //
@@ -192,7 +192,7 @@ struct ClientCli {
     verbose: gut::cli::Verbosity,
 
     /// Path to the socket file to connect
-    #[structopt(short = "u", default_value = "vasp.sock")]
+    #[structopt(short = 'u', default_value = "vasp.sock")]
     socket_file: PathBuf,
 
     /// Control child process for saving CPU times when idle
@@ -200,7 +200,7 @@ struct ClientCli {
     control: bool,
 
     /// Stop VASP server
-    #[structopt(short = "q")]
+    #[structopt(short = 'q')]
     quit: bool,
 }
 
@@ -242,7 +242,7 @@ struct VibCli {
     frequency: bool,
 
     /// The output file for writing vibrational mode
-    #[structopt(short = "o")]
+    #[structopt(short = 'o')]
     outfile: PathBuf,
 }
 
