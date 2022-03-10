@@ -10,9 +10,40 @@ extern crate approx; // For the macro relative_eq!
 pub mod cli;
 mod interactive;
 mod plot;
-mod session;
 mod socket;
 mod vasp;
+
+mod session {
+    use super::*;
+
+    pub use gosh::runner::interactive::InteractiveSession as Session;
+    pub use gosh::runner::process::SessionHandler;
+
+    #[test]
+    fn test_interactive_vasp() -> Result<()> {
+        let read_pattern = "POSITIONS: reading from stdin";
+
+        // the input for writing into stdin
+        let positions = include_str!("../tests/files/interactive_positions.txt");
+
+        let vasp = std::process::Command::new("fake-vasp");
+        let mut s = Session::new(vasp);
+        let h = s.spawn()?;
+
+        let o = s.interact("", read_pattern)?;
+        let _ = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+        let o = s.interact(&positions, read_pattern)?;
+        let (energy2, _forces2) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+        assert_eq!(energy2, 2.0);
+        let o = s.interact(&positions, read_pattern)?;
+        let (energy3, _forces3) = crate::vasp::stdout::parse_energy_and_forces(&o)?;
+        assert_eq!(energy3, 3.0);
+
+        h.terminate()?;
+
+        Ok(())
+    }
+}
 // a397a097 ends here
 
 // [[file:../vasp-tools.note::57018756][57018756]]
