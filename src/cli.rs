@@ -85,7 +85,7 @@ pub fn simulate_interactive_vasp() -> Result<()> {
 
 // [[file:../vasp-tools.note::79d54340][79d54340]]
 /// A helper program for run VASP calculations
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 struct ServerCli {
     #[structopt(flatten)]
     verbose: gut::cli::Verbosity,
@@ -123,7 +123,7 @@ struct ServerCli {
 pub async fn run_vasp_enter_main() -> Result<()> {
     use crate::vasp::VaspTask;
 
-    let args = ServerCli::from_args();
+    let args = ServerCli::parse();
     args.verbose.setup_logger();
 
     // write STOPCAR only
@@ -149,7 +149,7 @@ pub async fn run_vasp_enter_main() -> Result<()> {
         } else if args.frequency {
             VaspTask::Frequency
         } else {
-            ServerCli::clap().print_help();
+            ServerCli::command().print_help();
             return Ok(());
         };
         crate::vasp::update_incar_for_bbm(&task)?;
@@ -208,7 +208,7 @@ struct ClientCli {
 
 #[tokio::main]
 pub async fn vasp_client_enter_main() -> Result<()> {
-    let args = ClientCli::from_args();
+    let args = ClientCli::parse();
     args.verbose.setup_logger();
 
     // wait a moment for socke file ready
@@ -227,7 +227,7 @@ pub async fn vasp_client_enter_main() -> Result<()> {
 }
 // 28b92274 ends here
 
-// [[file:../vasp-tools.note::*vibrational mode][vibrational mode:1]]
+// [[file:../vasp-tools.note::b7c1eb20][b7c1eb20]]
 /// A helper program for run VASP calculations
 #[derive(Debug, StructOpt)]
 struct VibCli {
@@ -249,7 +249,7 @@ struct VibCli {
 }
 
 pub fn vib_mode_enter_main() -> Result<()> {
-    let args = VibCli::from_args();
+    let args = VibCli::parse();
     args.verbose.setup_logger();
 
     let outcar = &args.extract_vib_mode;
@@ -262,7 +262,7 @@ pub fn vib_mode_enter_main() -> Result<()> {
 
     Ok(())
 }
-// vibrational mode:1 ends here
+// b7c1eb20 ends here
 
 // [[file:../vasp-tools.note::3fdb5cf5][3fdb5cf5]]
 #[derive(Debug, StructOpt)]
@@ -277,7 +277,7 @@ struct SummaryCli {
 }
 
 pub fn vasp_summary_enter_main() -> Result<()> {
-    let args = SummaryCli::from_args();
+    let args = SummaryCli::parse();
     args.verbose.setup_logger();
 
     crate::vasp::outcar::summarize_outcar("OUTCAR".as_ref(), args.plot)?;

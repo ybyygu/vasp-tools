@@ -16,8 +16,8 @@ chrono = "0.4"
 vecfx = "0.1"
 approx = "0.5"
 text_parser = { version = "0.3.0", package = "gchemol-parser" }
-gut = { version = "0.2", package = "gchemol-gut" }
-clap = {version="3", features = ["derive"]}
+gut = { version = "0.4", package = "gchemol-gut" }
+clap = {version="4", features = ["derive"]}
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.6"
 # rexpect = "0.4"
