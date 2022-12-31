@@ -2,10 +2,10 @@
 #command = "env"
 script = '''#! /usr/bin/env bash
 set -xe
-cargo im --offline --root=releases/${CARGO_MAKE_PROJECT_VERSION} --no-track --bins --force
-upx releases/${CARGO_MAKE_PROJECT_VERSION}/bin/*
+cargo im --offline --root=releases/${CARGO_MAKE_CRATE_VERSION} --no-track --bins --force
+upx releases/${CARGO_MAKE_CRATE_VERSION}/bin/*
 '''
 
 [tasks.h]
 dependencies = ["i"]
-script = '''scp releases/${CARGO_MAKE_PROJECT_VERSION}/bin/* hpc44:bin/ '''
+script = '''scp releases/${CARGO_MAKE_CRATE_VERSION}/bin/* hpc44:bin/ '''

@@ -1,7 +1,7 @@
 # [[file:vasp-tools.note::58b3211f][58b3211f]]
 [package]
 name = "vasp-tools"
-version = "0.0.17"
+version = "0.0.18"
 edition = "2021"
 authors = ["Wenping Guo <ybyygu@gmail.com>"]
 
@@ -15,7 +15,7 @@ envfile = "0.2"
 chrono = "0.4"
 vecfx = "0.1"
 approx = "0.5"
-text_parser = { version = "0.3.0", package = "gchemol-parser" }
+text_parser = { version = "0.4.0", package = "gchemol-parser" }
 gut = { version = "0.4", package = "gchemol-gut" }
 clap = {version="4", features = ["derive"]}
 tokio = { version = "1", features = ["full"] }

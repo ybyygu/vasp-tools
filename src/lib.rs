@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 #[macro_use]
 extern crate approx; // For the macro relative_eq!
-// imports:1 ends here
+                     // imports:1 ends here
 
 // [[file:../vasp-tools.note::a397a097][a397a097]]
 pub mod cli;

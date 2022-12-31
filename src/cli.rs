@@ -166,8 +166,8 @@ pub async fn run_vasp_enter_main() -> Result<()> {
                 duct::cmd!(_cmd.into_owned())
             }
             .unchecked()
-                .run()
-                .with_context(|| format!("Run VASP failure using {:?}", vasp_program))?;
+            .run()
+            .with_context(|| format!("Run VASP failure using {:?}", vasp_program))?;
 
             // or we can use `std::process::Command` directly
             //

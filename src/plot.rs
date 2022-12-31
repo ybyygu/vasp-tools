@@ -54,7 +54,10 @@ impl AsciiPlot {
         let data: String = x.iter().zip(y).map(|(_x, _y)| format!("{}\t{}\n", _x, _y)).collect();
         gut::fs::write_to_file(file, &data)?;
 
-        let output = duct::cmd!("gnuplot").dir(dir.path()).stdin_bytes(plot_script.as_str()).read()?;
+        let output = duct::cmd!("gnuplot")
+            .dir(dir.path())
+            .stdin_bytes(plot_script.as_str())
+            .read()?;
         Ok(output)
     }
 }

@@ -14,7 +14,7 @@ pub struct VaspOutcar {
 }
 // base:1 ends here
 
-// [[file:../../vasp-tools.note::*grep][grep:1]]
+// [[file:../../vasp-tools.note::afdf75b7][afdf75b7]]
 impl VaspOutcar {
     pub fn parse_last_imaginary_freq_mode_from(f: &Path) -> Result<Vec<[f64; 3]>> {
         let mut reader = GrepReader::try_from_path(f)?;
@@ -26,18 +26,19 @@ impl VaspOutcar {
         }
 
         // number of dos      NEDOS =    301   number of ions     NIONS =     52
-        // 21 f/i=   10.478975 THz    65.841344 2PiTHz  349.540982 cm-1    43.337574 meV
-        let n = reader.mark(&[r"number of ions     NIONS =", r"^\s*\d+\s*f/i="])?;
-        println!("set up {} markers", n);
-        assert!(n >= 2, "at least one imaginary frequency required (n={})", n);
-        s.clear();
+        let n = reader.mark(r"number of ions     NIONS =", 1)?;
         reader.goto_marker(0);
+        s.clear();
         reader.read_lines(1, &mut s)?;
-        let natoms = parse::parse_number_of_atoms(dbg!(&s))?;
+        let natoms = parse::parse_number_of_atoms(&s)?;
 
+        // 21 f/i=   10.478975 THz    65.841344 2PiTHz  349.540982 cm-1    43.337574 meV
+        let n = reader.mark(r"^\s*\d+\s*f/i=", None)?;
+        println!("set up {} markers", n);
+        assert!(n >= 1, "at least one imaginary frequency required (n={})", n);
         s.clear();
         // take the last imaginary vibration mode
-        for i in 0..(n - 1) {
+        for i in 0..n {
             let _ = reader.goto_next_marker()?;
         }
         reader.read_lines(natoms + 2, &mut s)?;
@@ -47,7 +48,7 @@ impl VaspOutcar {
         Ok(vib)
     }
 }
-// grep:1 ends here
+// afdf75b7 ends here
 
 // [[file:../../vasp-tools.note::*parse][parse:1]]
 mod parse {
@@ -99,11 +100,11 @@ mod parse {
 
         let s = "  21 f/i=   10.478975 THz    65.841344 2PiTHz  349.540982 cm-1    43.337574 meV
              X         Y         Z           dx          dy          dz
-      0.000000  0.000000  2.000078            0           0           0  
-     -0.022799  0.040757  8.573679            0           0           0  
-      1.365074  0.804926  6.453952            0           0           0  
-     -0.000000  1.564238  4.212194            0           0           0  
-      2.709340  0.000000  2.000078            0           0           0  
+      0.000000  0.000000  2.000078            0           0           0
+     -0.022799  0.040757  8.573679            0           0           0
+      1.365074  0.804926  6.453952            0           0           0
+     -0.000000  1.564238  4.212194            0           0           0
+      2.709340  0.000000  2.000078            0           0           0
 ";
         let x = parse_imaginary_vibrational_mode(s, n)?;
         assert_eq!(x.len(), 5, "{:?}", x);
@@ -112,3 +113,15 @@ mod parse {
     }
 }
 // parse:1 ends here
+
+// [[file:../../vasp-tools.note::5a5ce2fe][5a5ce2fe]]
+#[test]
+fn test_grep_outcar() -> Result<()> {
+    //   21 f/i=   10.478975 THz    65.841344 2PiTHz  349.540982 cm-1    43.337574 meV
+    let f = "./tests/files/OUTCAR-freq";
+    let modes = VaspOutcar::parse_last_imaginary_freq_mode_from(f.as_ref())?;
+    assert_eq!(modes.len(), 52);
+
+    Ok(())
+}
+// 5a5ce2fe ends here
